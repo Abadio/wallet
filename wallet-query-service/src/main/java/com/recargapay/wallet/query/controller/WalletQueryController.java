@@ -12,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.UUID;
 
@@ -59,12 +60,18 @@ public class WalletQueryController {
             description = "Retrieves the balance of a wallet on a specific date.",
             responses = {
                     @ApiResponse(responseCode = "200", description = "Historical balance retrieved successfully"),
+                    @ApiResponse(responseCode = "400", description = "Invalid date format"),
                     @ApiResponse(responseCode = "404", description = "Balance not found for the specified date")
             }
     )
     public ResponseEntity<DailyBalanceDocument> getHistoricalBalance(
             @Parameter(description = "UUID of the wallet", required = true) @PathVariable UUID walletId,
             @Parameter(description = "Date in YYYY-MM-DD format", required = true) @RequestParam String date) {
-        return ResponseEntity.ok(queryService.getHistoricalBalance(walletId, LocalDate.parse(date)));
+        try {
+            LocalDate parsedDate = LocalDate.parse(date);
+            return ResponseEntity.ok(queryService.getHistoricalBalance(walletId, parsedDate));
+        } catch (DateTimeParseException ex) {
+            throw new DateTimeParseException("Invalid date format. Use YYYY-MM-DD.", date, ex.getErrorIndex());
+        }
     }
 }

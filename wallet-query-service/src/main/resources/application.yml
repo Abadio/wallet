@@ -5,8 +5,14 @@ spring:
   data:
     mongodb:
       uri: mongodb://mongodb:27017/wallet_service
+      database: wallet_service
       uuid-representation: standard
       auto-index-creation: true
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
 
 springdoc:
   api-docs:
@@ -15,3 +21,8 @@ springdoc:
   swagger-ui:
     path: /swagger-ui.html
     enabled: true
+
+logging:
+  level:
+    com.recargapay.wallet.query: DEBUG
+    org.springframework.data.mongodb: DEBUG

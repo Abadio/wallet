@@ -1,0 +1,19 @@
+# Ignorar diretórios de dados
+mongo-data
+postgres_data
+
+# Ignorar arquivos de build e temporários
+target/
+*.log
+*.jar
+*.class
+
+# Ignorar configurações locais e backups
+.git/
+.idea/
+*.bak
+mongo-backup*
+
+# Ignorar outros arquivos desnecessários
+Dockerfile*
+docker-compose*.yml

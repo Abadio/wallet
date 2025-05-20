@@ -1,6 +1,7 @@
 package com.recargapay.wallet.query.document;
 
 import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.math.BigDecimal;
@@ -11,6 +12,7 @@ import java.util.UUID;
 public class TransactionHistoryDocument {
     @Id
     private UUID id;
+    @Indexed
     private UUID walletId;
     private UUID userId;
     private String username;
@@ -20,6 +22,7 @@ public class TransactionHistoryDocument {
     private UUID relatedWalletId;
     private String relatedUsername;
     private String description;
+    @Indexed
     private OffsetDateTime createdAt;
 
     public TransactionHistoryDocument() {
