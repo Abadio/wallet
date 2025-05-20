@@ -1,0 +1,28 @@
+spring:
+  datasource:
+    url: jdbc:tc:postgresql:16:///testdb
+    driver-class-name: org.postgresql.Driver
+    username: test
+    password: test
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: none
+  kafka:
+    bootstrap-servers: ${spring.embedded.kafka.brokers}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      group-id: test-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: '*'
+  flyway:
+    locations: classpath:db/migration
+management:
+  metrics:
+    enable:
+      kafka: false

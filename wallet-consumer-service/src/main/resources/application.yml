@@ -1,0 +1,60 @@
+server:
+  port: 8083
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/wallet_service}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:your_password}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  kafka:
+    bootstrap-servers: kafka:9092
+    consumer:
+      group-id: wallet-projection
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      enable-auto-commit: false
+      properties:
+        spring.json.value.deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+        max.poll.records: 1
+        fetch.max.bytes: 52428800
+        max.partition.fetch.bytes: 1048576
+        session.timeout.ms: 30000
+        heartbeat.interval.ms: 10000
+    listener:
+      ack-mode: MANUAL_IMMEDIATE
+      error-handler: kafkaErrorHandler
+      concurrency: 1
+      poll-timeout: 1000
+      retry:
+        max-attempts: 3
+        backoff:
+          delay: 1000
+          multiplier: 2.0
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+  data:
+    mongodb:
+      uri: mongodb://mongodb:27017/wallet_service
+      database: wallet_service  # Adicionado para resolver o placeholder
+      auto-index-creation: true
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+logging:
+  level:
+    com.recargapay.wallet.consumer: TRACE
+    org.springframework.kafka: TRACE
+    org.apache.kafka: TRACE
+    org.springframework.data.mongodb: TRACE
+    org.springframework.kafka.support.serializer: TRACE
+    org.springframework.kafka.listener: TRACE

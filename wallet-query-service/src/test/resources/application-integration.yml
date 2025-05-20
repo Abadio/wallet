@@ -1,0 +1,9 @@
+spring:
+  data:
+    mongodb:
+      auto-index-creation: true
+      embedded:
+        enabled: true
+        version: 4.2
+      uri: mongodb://localhost:27018/test
+      uuid-representation: standard
