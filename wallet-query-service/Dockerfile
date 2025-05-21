@@ -1,9 +1,9 @@
 FROM maven:3.9.6-eclipse-temurin-17 AS build
 WORKDIR /app
-COPY pom.xml .
-COPY wallet-query-service/pom.xml ./wallet-query-service/pom.xml
-COPY wallet-query-service/src ./wallet-query-service/src
-RUN mvn clean package -f wallet-query-service/pom.xml -DskipTests
+# Copia todo o projeto multi-módulo
+COPY . .
+# Compila todos os módulos no nível do pom.xml raiz
+RUN mvn clean package -DskipTests
 
 FROM openjdk:17-jdk-slim
 WORKDIR /app
