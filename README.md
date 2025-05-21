@@ -1,5 +1,3 @@
-Wallet Service
-Description
 The Wallet Service is a digital wallet application that enables financial operations such as deposits, withdrawals, and transfers between wallets, as well as querying current balances, transaction histories, and daily balances. The application is built with a microservices architecture, leveraging the CQRS (Command Query Responsibility Segregation) pattern to separate write and read operations, ensuring scalability, consistency, and performance.
 Solution Architecture
 The application consists of three microservices, each with distinct responsibilities:
