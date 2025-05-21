@@ -1,3 +1,5 @@
+Wallet Service
+Description
 The Wallet Service is a digital wallet application that enables financial operations such as deposits, withdrawals, and transfers between wallets, as well as querying current balances, transaction histories, and daily balances. The application is built with a microservices architecture, leveraging the CQRS (Command Query Responsibility Segregation) pattern to separate write and read operations, ensuring scalability, consistency, and performance.
 Solution Architecture
 The application consists of three microservices, each with distinct responsibilities:
@@ -43,14 +45,18 @@ Partitioning of the transactions Table: The transactions table in PostgreSQL is 
 How to Start the Application
 
 Ensure Docker and Docker Compose are installed.
-Clone the repository:git clone https://github.com/Abadio/wallet.git
+
+Clone the repository:
+git clone https://github.com/Abadio/wallet.git
 cd wallet
 
 
-Start all services (PostgreSQL, MongoDB, Kafka, Zookeeper, microservices):docker compose up -d --build
+Start all services (PostgreSQL, MongoDB, Kafka, Zookeeper, microservices):
+docker compose up -d --build
 
 
 Wait until services are healthy (check with docker ps).
+
 
 How to Stop the Application
 To stop and remove all containers:
@@ -71,15 +77,18 @@ Wallet Command Service (Financial Operations)
 Base URL: http://localhost:8081/api/command
 Via cURL
 
-Deposit $100 to wallet1:curl -X POST "http://localhost:8081/api/command/wallets/550e8400-e29b-41d4-a716-446655440101/deposit?amount=100&description=Initial%20deposit" \
+Deposit $100 to wallet1:
+curl -X POST "http://localhost:8081/api/command/wallets/550e8400-e29b-41d4-a716-446655440101/deposit?amount=100&description=Initial%20deposit" \
 -H "Content-Type: application/json"
 
 
-Withdraw $30 from wallet1:curl -X POST "http://localhost:8081/api/command/wallets/550e8400-e29b-41d4-a716-446655440101/withdraw?amount=30&description=Withdrawal%20test" \
+Withdraw $30 from wallet1:
+curl -X POST "http://localhost:8081/api/command/wallets/550e8400-e29b-41d4-a716-446655440101/withdraw?amount=30&description=Withdrawal%20test" \
 -H "Content-Type: application/json"
 
 
-Transfer $20 from wallet1 to wallet2:curl -X POST "http://localhost:8081/api/command/wallets/transfer?fromWalletId=550e8400-e29b-41d4-a716-446655440101&toWalletId=550e8400-e29b-41d4-a716-446655440102&amount=20&description=Transfer%20test" \
+Transfer $20 from wallet1 to wallet2:
+curl -X POST "http://localhost:8081/api/command/wallets/transfer?fromWalletId=550e8400-e29b-41d4-a716-446655440101&toWalletId=550e8400-e29b-41d4-a716-446655440102&amount=20&description=Transfer%20test" \
 -H "Content-Type: application/json"
 
 
@@ -98,15 +107,18 @@ Wallet Query Service (Queries)
 Base URL: http://localhost:8082/api/query
 Via cURL
 
-Query balance of wallet1:curl -X GET "http://localhost:8082/api/query/wallets/550e8400-e29b-41d4-a716-446655440101/balance" \
+Query balance of wallet1:
+curl -X GET "http://localhost:8082/api/query/wallets/550e8400-e29b-41d4-a716-446655440101/balance" \
 -H "Accept: application/json"
 
 
-Query transaction history of wallet1:curl -X GET "http://localhost:8082/api/query/wallets/550e8400-e29b-41d4-a716-446655440101/history" \
+Query transaction history of wallet1:
+curl -X GET "http://localhost:8082/api/query/wallets/550e8400-e29b-41d4-a716-446655440101/history" \
 -H "Accept: application/json"
 
 
-Query daily balance of wallet1 on 2025-05-21:curl -X GET "http://localhost:8082/api/query/wallets/550e8400-e29b-41d4-a716-446655440101/historical-balance?date=2025-05-21" \
+Query daily balance of wallet1 on 2025-05-21:
+curl -X GET "http://localhost:8082/api/query/wallets/550e8400-e29b-41d4-a716-446655440101/historical-balance?date=2025-05-21" \
 -H "Accept: application/json"
 
 
@@ -124,13 +136,16 @@ GET /api/query/wallets/{walletId}/historical-balance: Retrieves the balance on a
 Investigate Microservice Logs
 To check the logs of each microservice:
 
-Wallet Command Service:docker logs wallet-command-service
+Wallet Command Service:
+docker logs wallet-command-service
 
 
-Wallet Query Service:docker logs wallet-query-service
+Wallet Query Service:
+docker logs wallet-query-service
 
 
-Wallet Consumer Service:docker logs wallet-consumer-service
+Wallet Consumer Service:
+docker logs wallet-consumer-service
 
 
 
@@ -139,78 +154,99 @@ docker logs wallet-command-service --follow
 
 Query Data in PostgreSQL
 
-Access the postgres container:docker exec -it postgres psql -U postgres -d wallet_service
+Access the postgres container:
+docker exec -it postgres psql -U postgres -d wallet_service
 
 
 Example SQL queries:
-List users:SELECT * FROM wallet_service.users;
+
+List users:
+SELECT * FROM wallet_service.users;
 
 
-List wallets:SELECT * FROM wallet_service.wallets;
+List wallets:
+SELECT * FROM wallet_service.wallets;
 
 
-Query balance of wallet1:SELECT * FROM wallet_service.wallet_balances WHERE wallet_id = '550e8400-e29b-41d4-a716-446655440101';
+Query balance of wallet1:
+SELECT * FROM wallet_service.wallet_balances WHERE wallet_id = '550e8400-e29b-41d4-a716-446655440101';
 
 
-Query transactions of wallet1:SELECT * FROM wallet_service.transactions WHERE wallet_id = '550e8400-e29b-41d4-a716-446655440101';
+Query transactions of wallet1:
+SELECT * FROM wallet_service.transactions WHERE wallet_id = '550e8400-e29b-41d4-a716-446655440101';
 
 
 
 
-Exit psql:\q
+Exit psql:
+\q
 
 
 
 Query Data in Kafka
 
-Access the kafka container:docker exec -it kafka bash
+Access the kafka container:
+docker exec -it kafka bash
 
 
 Query topics wallet-events and wallet-events-dlq:
-List events in wallet-events:kafka-console-consumer --bootstrap-server kafka:9092 --topic wallet-events --from-beginning
+
+List events in wallet-events:
+kafka-console-consumer --bootstrap-server kafka:9092 --topic wallet-events --from-beginning
 
 
-List messages in wallet-events-dlq:kafka-console-consumer --bootstrap-server kafka:9092 --topic wallet-events-dlq --from-beginning
+List messages in wallet-events-dlq:
+kafka-console-consumer --bootstrap-server kafka:9092 --topic wallet-events-dlq --from-beginning
 
 
 
 
-Exit the container:exit
+Exit the container:
+exit
 
 
 
 Query Data in MongoDB
 Note: The wallet_balances, transaction_history, and daily_balance collections may be empty after running the reset-solution.sh script. To populate the data, run the test_wallet_operations.sh script before performing queries.
 
-Access the mongodb container:docker exec -it mongodb mongosh wallet_service
+Access the mongodb container:
+docker exec -it mongodb mongosh wallet_service
 
 
 Example queries:
-Query balance of wallet1:db.wallet_balances.findOne({ "_id": UUID("550e8400-e29b-41d4-a716-446655440101") })
+
+Query balance of wallet1:
+db.wallet_balances.findOne({ "_id": UUID("550e8400-e29b-41d4-a716-446655440101") })
 
 
-Query transaction history of wallet1:db.transaction_history.find({ "walletId": UUID("550e8400-e29b-41d4-a716-446655440101") }).sort({ "createdAt": -1 })
+Query transaction history of wallet1:
+db.transaction_history.find({ "walletId": UUID("550e8400-e29b-41d4-a716-446655440101") }).sort({ "createdAt": -1 })
 
 
-Query daily balance of wallet1 on 2025-05-21:db.daily_balance.findOne({ "walletId": UUID("550e8400-e29b-41d4-a716-446655440101"), "date": "2025-05-21" })
+Query daily balance of wallet1 on 2025-05-21:
+db.daily_balance.findOne({ "walletId": UUID("550e8400-e29b-41d4-a716-446655440101"), "date": "2025-05-21" })
 
 
 
 
-Exit mongosh:exit
+Exit mongosh:
+exit
 
 
 
 Run the Automated Operations Script
 The test_wallet_operations.sh script performs a sequence of financial operations via cURL:
 
-Make the script executable:chmod#pragma once +x test_wallet_operations.sh
+Make the script executable:
+chmod +x test_wallet_operations.sh
 
 
-Run the script:./test_wallet_operations.sh
+Run the script:
+./test_wallet_operations.sh
 
 
 The script will execute:
+
 Deposit $100 to wallet1.
 Deposit $50 to wallet2.
 Withdraw $30 from wallet1.
@@ -221,13 +257,16 @@ Transfer $20 from wallet1 to wallet2.
 Reset the Application
 The reset-solution.sh script clears all data (PostgreSQL, MongoDB, Kafka) and restarts the services:
 
-Make the script executable:chmod +x reset-solution.sh
+Make the script executable:
+chmod +x reset-solution.sh
 
 
-Run the script:./reset-solution.sh
+Run the script:
+./reset-solution.sh
 
 
 This will:
+
 Stop all containers.
 Clear PostgreSQL and MongoDB databases.
 Recreate Kafka topics.
