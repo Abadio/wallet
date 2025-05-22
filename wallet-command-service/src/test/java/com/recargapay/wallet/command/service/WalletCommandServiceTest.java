@@ -226,8 +226,8 @@ class WalletCommandServiceTest {
     @Test
     void testHandleTransferCommand_Success() {
         // Setup
-        UUID sourceWalletId = UUID.randomUUID();
-        UUID targetWalletId = UUID.randomUUID();
+        UUID sourceWalletId = UUID.fromString("215b1499-7623-439b-aee8-a1e632e755e4");
+        UUID targetWalletId = UUID.fromString("d8e022d2-f675-47dd-910f-333fc636198a");
         Wallet sourceWallet = new Wallet();
         sourceWallet.setId(sourceWalletId);
         Wallet targetWallet = new Wallet();
@@ -245,8 +245,7 @@ class WalletCommandServiceTest {
         when(walletBalanceRepository.findByWalletIdWithLock(sourceWalletId)).thenReturn(Optional.of(sourceBalance));
         when(walletBalanceRepository.findByWalletIdWithLock(targetWalletId)).thenReturn(Optional.of(targetBalance));
         when(walletBalanceRepository.save(any(WalletBalance.class)))
-                .thenReturn(sourceBalance)
-                .thenReturn(targetBalance);
+                .thenAnswer(invocation -> invocation.getArgument(0));
         when(transactionRepository.save(any())).thenReturn(dummyTransaction);
         when(walletEventRepository.save(any(Event.class))).thenReturn(dummyEvent);
         when(walletRepository.getReferenceById(sourceWalletId)).thenReturn(sourceWallet);
@@ -281,8 +280,8 @@ class WalletCommandServiceTest {
         verify(walletBalanceRepository, times(1)).findByWalletIdWithLock(targetWalletId);
         verify(walletBalanceRepository, times(2)).save(any(WalletBalance.class));
         verify(transactionRepository, times(2)).save(any());
-        verify(walletEventRepository, times(1)).save(any(Event.class));
-        verify(kafkaTemplate, times(1)).send(eq("wallet-events"), anyString(), any());
+        verify(walletEventRepository, times(2)).save(any(Event.class));
+        verify(kafkaTemplate, times(2)).send(eq("wallet-events"), anyString(), any());
         verifyNoMoreInteractions(walletBalanceRepository, transactionRepository, walletEventRepository, kafkaTemplate);
     }
 
@@ -328,26 +327,32 @@ class WalletCommandServiceTest {
     @Test
     void testHandleTransferCommand_SourceWalletNotFound() {
         // Setup
-        UUID sourceWalletId = UUID.randomUUID();
-        UUID targetWalletId = UUID.randomUUID();
-
-        when(walletBalanceRepository.findByWalletIdWithLock(sourceWalletId)).thenReturn(Optional.empty());
-
-        // Prepare command
+        UUID sourceWalletId = UUID.fromString("f221c50f-f61c-49e7-809d-8f1e44197bf2");
+        UUID targetWalletId = UUID.fromString("ec578d82-66a6-4176-be32-0a70a3effdd5");
+        BigDecimal transferAmount = new BigDecimal("100.00");
         TransferCommand command = new TransferCommand(
                 sourceWalletId,
                 targetWalletId,
-                new BigDecimal("100.00"),
+                transferAmount,
                 "Test transfer",
                 OffsetDateTime.now()
         );
 
-        // Verify exception
+        WalletBalance targetBalance = new WalletBalance();
+        targetBalance.setWalletId(targetWalletId);
+        targetBalance.setBalance(new BigDecimal("50.00"));
+
+        // Mock wallet balance repository
+        when(walletBalanceRepository.findByWalletIdWithLock(sourceWalletId)).thenReturn(Optional.empty());
+        when(walletBalanceRepository.findByWalletIdWithLock(targetWalletId)).thenReturn(Optional.of(targetBalance));
+
+        // Execute and verify exception
         assertThrows(NoSuchElementException.class, () -> walletCommandService.handle(command));
 
         // Verify interactions
-        verify(walletBalanceRepository, times(1)).findByWalletIdWithLock(sourceWalletId);
-        verifyNoMoreInteractions(walletBalanceRepository, transactionRepository, walletEventRepository, kafkaTemplate);
+        verify(walletBalanceRepository).findByWalletIdWithLock(sourceWalletId);
+        verify(walletBalanceRepository).findByWalletIdWithLock(targetWalletId);
+        verifyNoMoreInteractions(walletBalanceRepository, walletRepository, transactionRepository, walletEventRepository, kafkaTemplate);
     }
 
     /**
@@ -356,30 +361,25 @@ class WalletCommandServiceTest {
     @Test
     void testHandleTransferCommand_TargetWalletNotFound() {
         // Setup
-        UUID sourceWalletId = UUID.randomUUID();
-        UUID targetWalletId = UUID.randomUUID();
-        WalletBalance sourceBalance = new WalletBalance();
-        sourceBalance.setWalletId(sourceWalletId);
-        sourceBalance.setBalance(new BigDecimal("200.00"));
-
-        when(walletBalanceRepository.findByWalletIdWithLock(sourceWalletId)).thenReturn(Optional.of(sourceBalance));
-        when(walletBalanceRepository.findByWalletIdWithLock(targetWalletId)).thenReturn(Optional.empty());
-
-        // Prepare command
+        UUID sourceWalletId = UUID.fromString("f4c2a626-5b54-4a8a-8954-013eb7b1cb07");
+        UUID targetWalletId = UUID.fromString("e729b857-30dd-41c6-a6f7-a38809f5ad9b");
+        BigDecimal transferAmount = new BigDecimal("100.00");
         TransferCommand command = new TransferCommand(
                 sourceWalletId,
                 targetWalletId,
-                new BigDecimal("100.00"),
+                transferAmount,
                 "Test transfer",
                 OffsetDateTime.now()
         );
 
-        // Verify exception
+        // Mock wallet balance repository
+        when(walletBalanceRepository.findByWalletIdWithLock(targetWalletId)).thenReturn(Optional.empty());
+
+        // Execute and verify exception
         assertThrows(NoSuchElementException.class, () -> walletCommandService.handle(command));
 
         // Verify interactions
-        verify(walletBalanceRepository, times(1)).findByWalletIdWithLock(sourceWalletId);
-        verify(walletBalanceRepository, times(1)).findByWalletIdWithLock(targetWalletId);
-        verifyNoMoreInteractions(walletBalanceRepository, transactionRepository, walletEventRepository, kafkaTemplate);
+        verify(walletBalanceRepository).findByWalletIdWithLock(targetWalletId);
+        verifyNoMoreInteractions(walletBalanceRepository, walletRepository, transactionRepository, walletEventRepository, kafkaTemplate);
     }
 }

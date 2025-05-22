@@ -29,6 +29,12 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+/**
+ * Integration tests for WalletCommandController, validating HTTP endpoints for deposit, withdrawal,
+ * and transfer operations using MockMvc, H2 database, and embedded Kafka. Wallets are initialized
+ * with zero balance and lastTransactionId as UUID(0L, 0L). Non-zero balances are set via deposit
+ * requests.
+ */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("integration")
@@ -54,17 +60,29 @@ class WalletCommandControllerIntegrationTest {
     @Autowired
     private UserRepository userRepository;
 
-    private Wallet createWallet(UUID walletId, BigDecimal initialBalance) {
-        System.out.println("Creating wallet with walletId: " + walletId);
-        User user = new User("testuser_" + UUID.randomUUID(), "test_" + UUID.randomUUID() + "@example.com");
-        userRepository.saveAndFlush(user);
+    /**
+     * Creates a wallet with a specified ID, initialized with zero balance and lastTransactionId as
+     * UUID(0L, 0L). If a non-zero balance is needed, it must be set via a deposit request.
+     */
+    private Wallet createWallet(UUID walletId) {
+        User user = new User();
+        user.setUsername("testuser_" + UUID.randomUUID());
+        user.setEmail("test_" + UUID.randomUUID() + "@example.com");
+        user.setCreatedAt(OffsetDateTime.now());
+        user.setUpdatedAt(OffsetDateTime.now());
+        user = userRepository.saveAndFlush(user);
 
-        Wallet wallet = new Wallet(user, "BRL");
+        Wallet wallet = new Wallet();
         wallet.setId(walletId);
-        walletRepository.saveAndFlush(wallet);
+        wallet.setUser(user);
+        wallet.setCurrency("BRL");
+        wallet.setCreatedAt(OffsetDateTime.now());
+        wallet.setUpdatedAt(OffsetDateTime.now());
+        wallet = walletRepository.saveAndFlush(wallet);
 
-        WalletBalance balance = new WalletBalance(walletId);
-        balance.setBalance(initialBalance);
+        WalletBalance balance = new WalletBalance();
+        balance.setWalletId(walletId);
+        balance.setBalance(BigDecimal.ZERO);
         balance.setLastTransactionId(new UUID(0L, 0L));
         balance.setUpdatedAt(OffsetDateTime.now());
         walletBalanceRepository.saveAndFlush(balance);
@@ -72,12 +90,23 @@ class WalletCommandControllerIntegrationTest {
         return wallet;
     }
 
+    /**
+     * Performs a deposit via HTTP to set a non-zero balance for a wallet.
+     */
+    private void depositToWallet(UUID walletId, BigDecimal amount) throws Exception {
+        mockMvc.perform(post("/api/command/wallets/{walletId}/deposit", walletId)
+                        .param("amount", amount.toString())
+                        .param("description", "Initial deposit")
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED))
+                .andExpect(status().isOk());
+    }
+
     @Test
     @Transactional
     void testDeposit_Success() throws Exception {
         // Arrange
         UUID walletId = UUID.randomUUID();
-        createWallet(walletId, new BigDecimal("200.00"));
+        createWallet(walletId);
 
         // Act
         mockMvc.perform(post("/api/command/wallets/{walletId}/deposit", walletId)
@@ -88,9 +117,9 @@ class WalletCommandControllerIntegrationTest {
 
         // Assert
         WalletBalance balance = walletBalanceRepository.findByWalletIdWithLock(walletId).orElseThrow();
-        assertEquals(new BigDecimal("300.00"), balance.getBalance());
-        assertEquals(1, transactionRepository.count());
-        assertEquals(1, eventRepository.count());
+        assertEquals(new BigDecimal("100.00"), balance.getBalance());
+        assertEquals(1, transactionRepository.count()); // Only test deposit
+        assertEquals(1, eventRepository.count()); // Only DepositedEvent
     }
 
     @Test
@@ -117,7 +146,8 @@ class WalletCommandControllerIntegrationTest {
     void testDeposit_InvalidAmount() throws Exception {
         // Arrange
         UUID walletId = UUID.randomUUID();
-        createWallet(walletId, new BigDecimal("200.00"));
+        createWallet(walletId);
+        depositToWallet(walletId, new BigDecimal("200.00"));
 
         // Act
         mockMvc.perform(post("/api/command/wallets/{walletId}/deposit", walletId)
@@ -129,8 +159,8 @@ class WalletCommandControllerIntegrationTest {
         // Assert
         WalletBalance balance = walletBalanceRepository.findByWalletIdWithLock(walletId).orElseThrow();
         assertEquals(new BigDecimal("200.00"), balance.getBalance());
-        assertEquals(0, transactionRepository.count());
-        assertEquals(0, eventRepository.count());
+        assertEquals(1, transactionRepository.count()); // Only initial deposit
+        assertEquals(1, eventRepository.count()); // Only DepositedEvent (initial)
     }
 
     @Test
@@ -138,7 +168,8 @@ class WalletCommandControllerIntegrationTest {
     void testWithdraw_Success() throws Exception {
         // Arrange
         UUID walletId = UUID.randomUUID();
-        createWallet(walletId, new BigDecimal("200.00"));
+        createWallet(walletId);
+        depositToWallet(walletId, new BigDecimal("200.00"));
 
         // Act
         mockMvc.perform(post("/api/command/wallets/{walletId}/withdraw", walletId)
@@ -150,8 +181,8 @@ class WalletCommandControllerIntegrationTest {
         // Assert
         WalletBalance balance = walletBalanceRepository.findByWalletIdWithLock(walletId).orElseThrow();
         assertEquals(new BigDecimal("100.00"), balance.getBalance());
-        assertEquals(1, transactionRepository.count());
-        assertEquals(1, eventRepository.count());
+        assertEquals(2, transactionRepository.count()); // Initial deposit + withdrawal
+        assertEquals(2, eventRepository.count()); // DepositedEvent + WithdrawnEvent
     }
 
     @Test
@@ -159,7 +190,8 @@ class WalletCommandControllerIntegrationTest {
     void testWithdraw_InsufficientBalance() throws Exception {
         // Arrange
         UUID walletId = UUID.randomUUID();
-        createWallet(walletId, new BigDecimal("50.00"));
+        createWallet(walletId);
+        depositToWallet(walletId, new BigDecimal("50.00"));
 
         // Act
         mockMvc.perform(post("/api/command/wallets/{walletId}/withdraw", walletId)
@@ -171,8 +203,8 @@ class WalletCommandControllerIntegrationTest {
         // Assert
         WalletBalance balance = walletBalanceRepository.findByWalletIdWithLock(walletId).orElseThrow();
         assertEquals(new BigDecimal("50.00"), balance.getBalance());
-        assertEquals(0, transactionRepository.count());
-        assertEquals(0, eventRepository.count());
+        assertEquals(1, transactionRepository.count()); // Only initial deposit
+        assertEquals(1, eventRepository.count()); // Only DepositedEvent
     }
 
     @Test
@@ -200,8 +232,10 @@ class WalletCommandControllerIntegrationTest {
         // Arrange
         UUID sourceWalletId = UUID.randomUUID();
         UUID targetWalletId = UUID.randomUUID();
-        createWallet(sourceWalletId, new BigDecimal("200.00"));
-        createWallet(targetWalletId, new BigDecimal("50.00"));
+        createWallet(sourceWalletId);
+        createWallet(targetWalletId);
+        depositToWallet(sourceWalletId, new BigDecimal("200.00"));
+        depositToWallet(targetWalletId, new BigDecimal("50.00"));
 
         // Act
         mockMvc.perform(post("/api/command/wallets/transfer")
@@ -217,8 +251,8 @@ class WalletCommandControllerIntegrationTest {
         WalletBalance targetBalance = walletBalanceRepository.findByWalletIdWithLock(targetWalletId).orElseThrow();
         assertEquals(new BigDecimal("100.00"), sourceBalance.getBalance());
         assertEquals(new BigDecimal("150.00"), targetBalance.getBalance());
-        assertEquals(2, transactionRepository.count());
-        assertEquals(1, eventRepository.count());
+        assertEquals(4, transactionRepository.count()); // Initial deposits (2) + TRANSFER_SENT + TRANSFER_RECEIVED
+        assertEquals(4, eventRepository.count()); // DepositedEvent (source) + DepositedEvent (target) + TRANSFER_SENT + TRANSFER_RECEIVED
     }
 
     @Test
@@ -227,8 +261,10 @@ class WalletCommandControllerIntegrationTest {
         // Arrange
         UUID sourceWalletId = UUID.randomUUID();
         UUID targetWalletId = UUID.randomUUID();
-        createWallet(sourceWalletId, new BigDecimal("50.00"));
-        createWallet(targetWalletId, new BigDecimal("50.00"));
+        createWallet(sourceWalletId);
+        createWallet(targetWalletId);
+        depositToWallet(sourceWalletId, new BigDecimal("50.00"));
+        depositToWallet(targetWalletId, new BigDecimal("50.00"));
 
         // Act
         mockMvc.perform(post("/api/command/wallets/transfer")
@@ -244,8 +280,8 @@ class WalletCommandControllerIntegrationTest {
         WalletBalance targetBalance = walletBalanceRepository.findByWalletIdWithLock(targetWalletId).orElseThrow();
         assertEquals(new BigDecimal("50.00"), sourceBalance.getBalance());
         assertEquals(new BigDecimal("50.00"), targetBalance.getBalance());
-        assertEquals(0, transactionRepository.count());
-        assertEquals(0, eventRepository.count());
+        assertEquals(2, transactionRepository.count()); // Initial deposits (2)
+        assertEquals(2, eventRepository.count()); // DepositedEvent (source) + DepositedEvent (target)
     }
 
     @Test
@@ -254,7 +290,8 @@ class WalletCommandControllerIntegrationTest {
         // Arrange
         UUID sourceWalletId = UUID.randomUUID();
         UUID targetWalletId = UUID.randomUUID();
-        createWallet(targetWalletId, new BigDecimal("50.00"));
+        createWallet(targetWalletId);
+        depositToWallet(targetWalletId, new BigDecimal("50.00"));
 
         // Act
         mockMvc.perform(post("/api/command/wallets/transfer")
@@ -268,8 +305,8 @@ class WalletCommandControllerIntegrationTest {
         // Assert
         WalletBalance targetBalance = walletBalanceRepository.findByWalletIdWithLock(targetWalletId).orElseThrow();
         assertEquals(new BigDecimal("50.00"), targetBalance.getBalance());
-        assertEquals(0, transactionRepository.count());
-        assertEquals(0, eventRepository.count());
+        assertEquals(1, transactionRepository.count()); // Initial deposit (target)
+        assertEquals(1, eventRepository.count()); // DepositedEvent (target)
     }
 
     @Test
@@ -278,7 +315,8 @@ class WalletCommandControllerIntegrationTest {
         // Arrange
         UUID sourceWalletId = UUID.randomUUID();
         UUID targetWalletId = UUID.randomUUID();
-        createWallet(sourceWalletId, new BigDecimal("200.00"));
+        createWallet(sourceWalletId);
+        depositToWallet(sourceWalletId, new BigDecimal("200.00"));
 
         // Act
         mockMvc.perform(post("/api/command/wallets/transfer")
@@ -292,7 +330,7 @@ class WalletCommandControllerIntegrationTest {
         // Assert
         WalletBalance sourceBalance = walletBalanceRepository.findByWalletIdWithLock(sourceWalletId).orElseThrow();
         assertEquals(new BigDecimal("200.00"), sourceBalance.getBalance());
-        assertEquals(0, transactionRepository.count());
-        assertEquals(0, eventRepository.count());
+        assertEquals(1, transactionRepository.count()); // Initial deposit (source)
+        assertEquals(1, eventRepository.count()); // DepositedEvent (source)
     }
 }

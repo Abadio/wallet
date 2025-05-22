@@ -28,6 +28,13 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+/**
+ * Integration tests for WalletCommandService, validating deposit, withdrawal, and transfer operations
+ * using a real H2 database and embedded Kafka. Wallets are initialized with zero balance and
+ * lastTransactionId as UUID(0L, 0L) to indicate no prior transactions. Non-zero initial balances
+ * are achieved through explicit deposit transactions. Kafka configuration is overridden by
+ * TestKafkaConfig for embedded Kafka.
+ */
 @SpringBootTest
 @ActiveProfiles("integration")
 @EmbeddedKafka(partitions = 1, topics = {"wallet-events"})
@@ -52,17 +59,30 @@ class WalletCommandServiceIntegrationTest {
     @Autowired
     private UserRepository userRepository;
 
-    private Wallet createWallet(UUID walletId, BigDecimal initialBalance) {
-        System.out.println("Creating wallet with walletId: " + walletId);
-        User user = new User("testuser_" + UUID.randomUUID(), "test_" + UUID.randomUUID() + "@example.com");
-        userRepository.saveAndFlush(user);
+    /**
+     * Creates a wallet with a specified ID, initialized with zero balance and lastTransactionId as
+     * UUID(0L, 0L) to indicate no prior transactions. This reflects the initial setup state with no
+     * user-initiated transactions.
+     */
+    private Wallet createWallet(UUID walletId) {
+        User user = new User();
+        user.setUsername("testuser_" + UUID.randomUUID());
+        user.setEmail("test_" + UUID.randomUUID() + "@example.com");
+        user.setCreatedAt(OffsetDateTime.now());
+        user.setUpdatedAt(OffsetDateTime.now());
+        user = userRepository.saveAndFlush(user);
 
-        Wallet wallet = new Wallet(user, "BRL");
+        Wallet wallet = new Wallet();
         wallet.setId(walletId);
-        walletRepository.saveAndFlush(wallet);
+        wallet.setUser(user);
+        wallet.setCurrency("BRL");
+        wallet.setCreatedAt(OffsetDateTime.now());
+        wallet.setUpdatedAt(OffsetDateTime.now());
+        wallet = walletRepository.saveAndFlush(wallet);
 
-        WalletBalance balance = new WalletBalance(walletId);
-        balance.setBalance(initialBalance);
+        WalletBalance balance = new WalletBalance();
+        balance.setWalletId(walletId);
+        balance.setBalance(BigDecimal.ZERO);
         balance.setLastTransactionId(new UUID(0L, 0L));
         balance.setUpdatedAt(OffsetDateTime.now());
         walletBalanceRepository.saveAndFlush(balance);
@@ -74,14 +94,13 @@ class WalletCommandServiceIntegrationTest {
     @Transactional
     void testDeposit_Success() {
         UUID walletId = UUID.randomUUID();
-        System.out.println("TestDeposit_Success using walletId: " + walletId);
-        createWallet(walletId, new BigDecimal("200.00"));
+        createWallet(walletId);
         DepositCommand command = new DepositCommand(walletId, new BigDecimal("100.00"), "Test deposit", OffsetDateTime.now());
 
         walletCommandService.handle(command);
 
         WalletBalance balance = walletBalanceRepository.findByWalletIdWithLock(walletId).orElseThrow();
-        assertEquals(new BigDecimal("300.00"), balance.getBalance());
+        assertEquals(new BigDecimal("100.00"), balance.getBalance());
         assertEquals(1, transactionRepository.count());
         assertEquals(1, eventRepository.count());
     }
@@ -101,12 +120,12 @@ class WalletCommandServiceIntegrationTest {
     @Transactional
     void testDeposit_InvalidAmount() {
         UUID walletId = UUID.randomUUID();
-        createWallet(walletId, new BigDecimal("200.00"));
+        createWallet(walletId);
         DepositCommand command = new DepositCommand(walletId, new BigDecimal("-100.00"), "Test deposit", OffsetDateTime.now());
 
         assertThrows(IllegalArgumentException.class, () -> walletCommandService.handle(command));
         WalletBalance balance = walletBalanceRepository.findByWalletIdWithLock(walletId).orElseThrow();
-        assertEquals(new BigDecimal("200.00"), balance.getBalance());
+        assertEquals(BigDecimal.ZERO, balance.getBalance());
         assertEquals(0, transactionRepository.count());
         assertEquals(0, eventRepository.count());
     }
@@ -115,29 +134,36 @@ class WalletCommandServiceIntegrationTest {
     @Transactional
     void testWithdraw_Success() {
         UUID walletId = UUID.randomUUID();
-        createWallet(walletId, new BigDecimal("200.00"));
-        WithdrawCommand command = new WithdrawCommand(walletId, new BigDecimal("100.00"), "Test withdraw", OffsetDateTime.now());
+        createWallet(walletId);
+        // Perform initial deposit to set balance
+        DepositCommand deposit = new DepositCommand(walletId, new BigDecimal("200.00"), "Initial deposit", OffsetDateTime.now());
+        walletCommandService.handle(deposit);
 
+        WithdrawCommand command = new WithdrawCommand(walletId, new BigDecimal("100.00"), "Test withdraw", OffsetDateTime.now());
         walletCommandService.handle(command);
 
         WalletBalance balance = walletBalanceRepository.findByWalletIdWithLock(walletId).orElseThrow();
         assertEquals(new BigDecimal("100.00"), balance.getBalance());
-        assertEquals(1, transactionRepository.count());
-        assertEquals(1, eventRepository.count());
+        assertEquals(2, transactionRepository.count()); // Deposit + withdrawal
+        assertEquals(2, eventRepository.count()); // DepositedEvent + WithdrawnEvent
     }
 
     @Test
     @Transactional
     void testWithdraw_InsufficientBalance() {
         UUID walletId = UUID.randomUUID();
-        createWallet(walletId, new BigDecimal("50.00"));
-        WithdrawCommand command = new WithdrawCommand(walletId, new BigDecimal("100.00"), "Test withdraw", OffsetDateTime.now());
+        createWallet(walletId);
+        // Perform initial deposit to set balance
+        DepositCommand deposit = new DepositCommand(walletId, new BigDecimal("50.00"), "Initial deposit", OffsetDateTime.now());
+        walletCommandService.handle(deposit);
 
+        WithdrawCommand command = new WithdrawCommand(walletId, new BigDecimal("100.00"), "Test withdraw", OffsetDateTime.now());
         assertThrows(IllegalStateException.class, () -> walletCommandService.handle(command));
+
         WalletBalance balance = walletBalanceRepository.findByWalletIdWithLock(walletId).orElseThrow();
         assertEquals(new BigDecimal("50.00"), balance.getBalance());
-        assertEquals(0, transactionRepository.count());
-        assertEquals(0, eventRepository.count());
+        assertEquals(1, transactionRepository.count()); // Only initial deposit
+        assertEquals(1, eventRepository.count()); // Only DepositedEvent
     }
 
     @Test
@@ -145,18 +171,21 @@ class WalletCommandServiceIntegrationTest {
     void testTransfer_Success() {
         UUID sourceWalletId = UUID.randomUUID();
         UUID targetWalletId = UUID.randomUUID();
-        createWallet(sourceWalletId, new BigDecimal("200.00"));
-        createWallet(targetWalletId, new BigDecimal("50.00"));
-        TransferCommand command = new TransferCommand(sourceWalletId, targetWalletId, new BigDecimal("100.00"), "Test transfer", OffsetDateTime.now());
+        createWallet(sourceWalletId);
+        createWallet(targetWalletId);
+        // Perform initial deposit to source wallet
+        DepositCommand deposit = new DepositCommand(sourceWalletId, new BigDecimal("200.00"), "Initial deposit", OffsetDateTime.now());
+        walletCommandService.handle(deposit);
 
+        TransferCommand command = new TransferCommand(sourceWalletId, targetWalletId, new BigDecimal("100.00"), "Test transfer", OffsetDateTime.now());
         walletCommandService.handle(command);
 
         WalletBalance sourceBalance = walletBalanceRepository.findByWalletIdWithLock(sourceWalletId).orElseThrow();
         WalletBalance targetBalance = walletBalanceRepository.findByWalletIdWithLock(targetWalletId).orElseThrow();
         assertEquals(new BigDecimal("100.00"), sourceBalance.getBalance());
-        assertEquals(new BigDecimal("150.00"), targetBalance.getBalance());
-        assertEquals(2, transactionRepository.count());
-        assertEquals(1, eventRepository.count());
+        assertEquals(new BigDecimal("100.00"), targetBalance.getBalance());
+        assertEquals(3, transactionRepository.count()); // Deposit + TRANSFER_SENT + TRANSFER_RECEIVED
+        assertEquals(3, eventRepository.count()); // DepositedEvent + TRANSFER_SENT + TRANSFER_RECEIVED
     }
 
     @Test
@@ -164,17 +193,21 @@ class WalletCommandServiceIntegrationTest {
     void testTransfer_InsufficientBalance() {
         UUID sourceWalletId = UUID.randomUUID();
         UUID targetWalletId = UUID.randomUUID();
-        createWallet(sourceWalletId, new BigDecimal("50.00"));
-        createWallet(targetWalletId, new BigDecimal("50.00"));
-        TransferCommand command = new TransferCommand(sourceWalletId, targetWalletId, new BigDecimal("100.00"), "Test transfer", OffsetDateTime.now());
+        createWallet(sourceWalletId);
+        createWallet(targetWalletId);
+        // Perform initial deposit to source wallet
+        DepositCommand deposit = new DepositCommand(sourceWalletId, new BigDecimal("50.00"), "Initial deposit", OffsetDateTime.now());
+        walletCommandService.handle(deposit);
 
+        TransferCommand command = new TransferCommand(sourceWalletId, targetWalletId, new BigDecimal("100.00"), "Test transfer", OffsetDateTime.now());
         assertThrows(IllegalStateException.class, () -> walletCommandService.handle(command));
+
         WalletBalance sourceBalance = walletBalanceRepository.findByWalletIdWithLock(sourceWalletId).orElseThrow();
         WalletBalance targetBalance = walletBalanceRepository.findByWalletIdWithLock(targetWalletId).orElseThrow();
         assertEquals(new BigDecimal("50.00"), sourceBalance.getBalance());
-        assertEquals(new BigDecimal("50.00"), targetBalance.getBalance());
-        assertEquals(0, transactionRepository.count());
-        assertEquals(0, eventRepository.count());
+        assertEquals(BigDecimal.ZERO, targetBalance.getBalance());
+        assertEquals(1, transactionRepository.count()); // Only initial deposit
+        assertEquals(1, eventRepository.count()); // Only DepositedEvent
     }
 
     @Test
@@ -182,12 +215,12 @@ class WalletCommandServiceIntegrationTest {
     void testTransfer_SourceWalletNotFound() {
         UUID sourceWalletId = UUID.randomUUID();
         UUID targetWalletId = UUID.randomUUID();
-        createWallet(targetWalletId, new BigDecimal("50.00"));
+        createWallet(targetWalletId);
         TransferCommand command = new TransferCommand(sourceWalletId, targetWalletId, new BigDecimal("100.00"), "Test transfer", OffsetDateTime.now());
 
         assertThrows(NoSuchElementException.class, () -> walletCommandService.handle(command));
         WalletBalance targetBalance = walletBalanceRepository.findByWalletIdWithLock(targetWalletId).orElseThrow();
-        assertEquals(new BigDecimal("50.00"), targetBalance.getBalance());
+        assertEquals(BigDecimal.ZERO, targetBalance.getBalance());
         assertEquals(0, transactionRepository.count());
         assertEquals(0, eventRepository.count());
     }
@@ -197,13 +230,17 @@ class WalletCommandServiceIntegrationTest {
     void testTransfer_TargetWalletNotFound() {
         UUID sourceWalletId = UUID.randomUUID();
         UUID targetWalletId = UUID.randomUUID();
-        createWallet(sourceWalletId, new BigDecimal("200.00"));
-        TransferCommand command = new TransferCommand(sourceWalletId, targetWalletId, new BigDecimal("100.00"), "Test transfer", OffsetDateTime.now());
+        createWallet(sourceWalletId);
+        // Perform initial deposit to source wallet
+        DepositCommand deposit = new DepositCommand(sourceWalletId, new BigDecimal("200.00"), "Initial deposit", OffsetDateTime.now());
+        walletCommandService.handle(deposit);
 
+        TransferCommand command = new TransferCommand(sourceWalletId, targetWalletId, new BigDecimal("100.00"), "Test transfer", OffsetDateTime.now());
         assertThrows(NoSuchElementException.class, () -> walletCommandService.handle(command));
+
         WalletBalance sourceBalance = walletBalanceRepository.findByWalletIdWithLock(sourceWalletId).orElseThrow();
         assertEquals(new BigDecimal("200.00"), sourceBalance.getBalance());
-        assertEquals(0, transactionRepository.count());
-        assertEquals(0, eventRepository.count());
+        assertEquals(1, transactionRepository.count()); // Only initial deposit
+        assertEquals(1, eventRepository.count()); // Only DepositedEvent
     }
 }
