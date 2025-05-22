@@ -16,6 +16,7 @@ import java.util.Properties;
  * Configures JPA with an in-memory H2 database for integration tests.
  */
 @Configuration
+@Profile("test")
 @EnableJpaRepositories(basePackages = "com.recargapay.wallet.consumer.repository")
 public class TestJpaConfig {
 

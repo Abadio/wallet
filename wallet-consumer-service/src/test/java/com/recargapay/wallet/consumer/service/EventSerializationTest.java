@@ -5,6 +5,7 @@ import com.recargapay.wallet.common.event.DepositedEvent;
 import com.recargapay.wallet.common.event.TransferredEvent;
 import com.recargapay.wallet.common.event.WithdrawnEvent;
 import com.recargapay.wallet.consumer.config.JacksonConfig;
+import com.recargapay.wallet.consumer.config.TestJacksonConfig;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,7 +22,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@SpringBootTest(classes = {JacksonConfig.class})
+@SpringBootTest(classes = {TestJacksonConfig.class})
 @ActiveProfiles("test")
 public class EventSerializationTest {
     private static final Logger logger = LoggerFactory.getLogger(EventSerializationTest.class);

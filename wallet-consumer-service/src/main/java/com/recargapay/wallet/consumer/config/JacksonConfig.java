@@ -6,12 +6,14 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 
 /**
  * Configures Jackson ObjectMapper for JSON serialization and deserialization.
  * Ensures proper handling of Java 8 date/time types and relaxed deserialization rules.
  */
 @Configuration
+@Profile("!test")
 public class JacksonConfig {
 
     /**

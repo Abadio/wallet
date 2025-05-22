@@ -21,6 +21,7 @@ import org.springframework.data.mongodb.repository.config.EnableMongoRepositorie
  * Configures MongoDB transaction management and repository support for integration tests.
  */
 @Configuration
+@Profile("test")
 @EnableMongoRepositories(basePackages = "com.recargapay.wallet.consumer.repository")
 public class TestMongoConfig {
     private static final Logger logger = LoggerFactory.getLogger(TestMongoConfig.class);

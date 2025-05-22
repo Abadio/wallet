@@ -10,6 +10,7 @@ import org.bson.codecs.configuration.CodecRegistry;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 import org.springframework.data.mongodb.MongoDatabaseFactory;
 import org.springframework.data.mongodb.MongoTransactionManager;
 import org.springframework.data.mongodb.config.AbstractMongoClientConfiguration;
@@ -21,6 +22,7 @@ import org.springframework.data.mongodb.core.mapping.MongoMappingContext;
  * Configures MongoDB connection and transaction management for the wallet service.
  */
 @Configuration
+@Profile("!test")
 public class MongoConfig extends AbstractMongoClientConfiguration {
 
     @Value("${spring.data.mongodb.uri}")

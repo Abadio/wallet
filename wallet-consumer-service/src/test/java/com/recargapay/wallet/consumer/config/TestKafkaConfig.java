@@ -28,11 +28,16 @@ import java.util.Map;
  * Uses EmbeddedKafkaBroker for test isolation.
  */
 @Configuration
+@Profile("test")
 public class TestKafkaConfig {
     private static final Logger logger = LoggerFactory.getLogger(TestKafkaConfig.class);
 
     /**
      * Configures Kafka producer components for tests.
+     *
+     * @param embeddedKafkaBroker Embedded Kafka broker for test isolation
+     * @param objectMapper        Jackson ObjectMapper for JSON serialization
+     * @return Configured ProducerFactory
      */
     @Bean
     public ProducerFactory<String, Object> producerFactory(EmbeddedKafkaBroker embeddedKafkaBroker, ObjectMapper objectMapper) {
@@ -47,6 +52,9 @@ public class TestKafkaConfig {
 
     /**
      * Creates a KafkaTemplate for sending messages in tests.
+     *
+     * @param producerFactory ProducerFactory for KafkaTemplate
+     * @return Configured KafkaTemplate
      */
     @Bean
     @Primary
@@ -57,6 +65,10 @@ public class TestKafkaConfig {
 
     /**
      * Configures Kafka consumer components for tests.
+     *
+     * @param embeddedKafkaBroker Embedded Kafka broker for test isolation
+     * @param objectMapper        Jackson ObjectMapper for JSON deserialization
+     * @return Configured ConsumerFactory
      */
     @Bean
     @Primary
@@ -71,17 +83,24 @@ public class TestKafkaConfig {
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
         props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 1);
         props.put(JsonDeserializer.TRUSTED_PACKAGES, "com.recargapay.wallet.common.event");
+        props.put(JsonDeserializer.TYPE_MAPPINGS,
+                "DepositedEvent:com.recargapay.wallet.common.event.DepositedEvent," +
+                        "WithdrawnEvent:com.recargapay.wallet.common.event.WithdrawnEvent," +
+                        "TransferredEvent:com.recargapay.wallet.common.event.TransferredEvent");
+        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, "java.lang.Object");
 
-        JsonDeserializer<Object> jsonDeserializer = new JsonDeserializer<>(Object.class, objectMapper, false);
-        jsonDeserializer.addTrustedPackages("com.recargapay.wallet.common.event");
-        logger.info("JsonDeserializer configured with trusted packages: com.recargapay.wallet.common.event");
+        logger.info("ConsumerFactory configured with bootstrap servers: {}, groupId: {}", embeddedKafkaBroker.getBrokersAsString(), "test-wallet-projection");
 
         return new DefaultKafkaConsumerFactory<>(props, new StringDeserializer(),
-                new ErrorHandlingDeserializer<>(jsonDeserializer));
+                new ErrorHandlingDeserializer<>(new JsonDeserializer<Object>(objectMapper)));
     }
 
     /**
      * Creates a Kafka listener container factory for tests with error handling and manual acknowledgment.
+     *
+     * @param consumerFactory ConsumerFactory for the listener
+     * @param errorHandler    Error handler for Kafka listener
+     * @return Configured ConcurrentKafkaListenerContainerFactory
      */
     @Bean
     @Primary

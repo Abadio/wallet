@@ -13,6 +13,7 @@ import org.springframework.context.annotation.Profile;
  * Ensures proper handling of Java 8 date/time types and relaxed deserialization rules.
  */
 @Configuration
+@Profile("test")
 public class TestJacksonConfig {
 
     /**

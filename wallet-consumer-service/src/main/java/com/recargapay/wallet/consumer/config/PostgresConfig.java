@@ -3,6 +3,7 @@ package com.recargapay.wallet.consumer.config;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
@@ -18,6 +19,7 @@ import org.springframework.boot.jdbc.DataSourceBuilder;
  * Enables JPA repositories for entities in the specified packages.
  */
 @Configuration
+@Profile("!test")
 @EnableJpaRepositories(
         basePackages = "com.recargapay.wallet.consumer.repository",
         entityManagerFactoryRef = "entityManagerFactory",
