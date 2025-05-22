@@ -1,6 +1,5 @@
 package com.recargapay.wallet.query.config;
 
-import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
@@ -22,11 +21,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 
 @Configuration
-@Profile("!integration")
-public class MongoConfig extends AbstractMongoClientConfiguration {
-
-    @Value("${spring.data.mongodb.uri}")
-    private String mongoUri;
+@Profile("integration")
+public class TestMongoConfig extends AbstractMongoClientConfiguration {
 
     @Value("${spring.data.mongodb.database}")
     private String databaseName;
@@ -38,13 +34,12 @@ public class MongoConfig extends AbstractMongoClientConfiguration {
                 MongoClientSettings.getDefaultCodecRegistry()
         );
 
-        ConnectionString connectionString = new ConnectionString(mongoUri);
         MongoClientSettings clientSettings = MongoClientSettings.builder()
-                .applyConnectionString(connectionString)
                 .codecRegistry(codecRegistry)
                 .uuidRepresentation(UuidRepresentation.STANDARD)
                 .build();
 
+        // Usa MongoDB embarcado (URI gerenciada pelo Flapdoodle)
         return MongoClients.create(clientSettings);
     }
 

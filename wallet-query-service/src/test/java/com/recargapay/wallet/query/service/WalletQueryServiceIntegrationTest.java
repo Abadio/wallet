@@ -48,12 +48,29 @@ class WalletQueryServiceIntegrationTest {
 
     @BeforeEach
     void setUp(TestInfo testInfo) {
+        // Limpar coleções MongoDB
+        mongoTemplate.getDb().drop();
+        System.out.println("MongoDB collections dropped");
+
+        // Criar índices manualmente
+        mongoTemplate.getCollection("daily_balance")
+                .createIndex(new org.bson.Document("walletId", 1).append("date", 1));
+        mongoTemplate.getCollection("transaction_history")
+                .createIndex(new org.bson.Document("walletId", 1));
+        mongoTemplate.getCollection("transaction_history")
+                .createIndex(new org.bson.Document("createdAt", 1));
+        System.out.println("Indexes created");
+
+        // Logs de diagnóstico
         System.out.println("Running test: " + testInfo.getDisplayName());
         System.out.println("MongoTemplate initialized: " + (mongoTemplate != null));
-        System.out.println("MongoDB URI from environment: " + environment.getProperty("spring.data.mongodb.uri"));
-        System.out.println("MongoDB port from environment: " + environment.getProperty("spring.data.mongodb.port"));
-        System.out.println("MongoDB database from environment: " + environment.getProperty("spring.data.mongodb.database"));
+        System.out.println("MongoDB URI: " + environment.getProperty("spring.data.mongodb.uri"));
+        System.out.println("MongoDB port: " + environment.getProperty("spring.data.mongodb.port"));
+        System.out.println("MongoDB database: " + environment.getProperty("spring.data.mongodb.database"));
         System.out.println("Embedded MongoDB enabled: " + environment.getProperty("spring.data.mongodb.embedded.enabled"));
+        System.out.println("MongoDB collections: " + mongoTemplate.getCollectionNames());
+        System.out.println("DailyBalance indexes: " + mongoTemplate.getCollection("daily_balance").listIndexes());
+        System.out.println("TransactionHistory indexes: " + mongoTemplate.getCollection("transaction_history").listIndexes());
     }
 
     @Test

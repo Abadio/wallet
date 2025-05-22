@@ -4,6 +4,12 @@ spring:
       auto-index-creation: true
       embedded:
         enabled: true
-        version: 4.2
-      uri: mongodb://localhost:27018/test
+        version: 6.0.8
+      database: test
       uuid-representation: standard
+logging:
+  level:
+    com.recargapay.wallet.query: DEBUG
+    org.springframework.data.mongodb: DEBUG
+    org.springframework.test.context: DEBUG
+    de.flapdoodle.embed.mongo: DEBUG
