@@ -44,7 +44,7 @@ public class EventSerializationTest {
                 OffsetDateTime.now()
         );
 
-        // Act: Serialize with JsonSerializer
+        // 1-Act: Serialize with JsonSerializer
         JsonSerializer<DepositedEvent> serializer = new JsonSerializer<>(objectMapper);
         serializer.setAddTypeInfo(true);
         byte[] serialized = serializer.serialize("wallet-events", event);
