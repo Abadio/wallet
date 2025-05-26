@@ -7,9 +7,16 @@ spring:
         version: 6.0.8
       database: test
       uuid-representation: standard
+    redis:
+      database: 0
+cache:
+  ttl: 2s
 logging:
   level:
     com.recargapay.wallet.query: DEBUG
     org.springframework.data.mongodb: DEBUG
+    org.springframework.data.redis: DEBUG
     org.springframework.test.context: DEBUG
     de.flapdoodle.embed.mongo: DEBUG
+    org.testcontainers: DEBUG
+    org.testcontainers.utility.ImageNameSubstitutor: TRACE

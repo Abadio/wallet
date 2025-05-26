@@ -8,11 +8,45 @@ spring:
       database: wallet_service
       uuid-representation: standard
       auto-index-creation: true
+    redis:
+      host: redis
+      port: 6379
+      database: 0
+  kafka:
+    bootstrap-servers: kafka:9092
+    consumer:
+      group-id: wallet-query-cache
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        spring.json.value.deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+        max.poll.records: 1
+        fetch.max.bytes: 52428800
+        max.partition.fetch.bytes: 1048576
+        session.timeout.ms: 30000
+        heartbeat.interval.ms: 10000
+        spring.json.trusted.packages: com.recargapay.wallet.common.event
+        spring.json.type.mapping:
+          DepositedEvent:com.recargapay.wallet.common.event.DepositedEvent,
+          WithdrawnEvent:com.recargapay.wallet.common.event.WithdrawnEvent,
+          TransferredEvent:com.recargapay.wallet.common.event.TransferredEvent
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    listener:
+      ack-mode: MANUAL_IMMEDIATE
+      concurrency: 1
+      poll-timeout: 1000
   jackson:
     serialization:
       write-dates-as-timestamps: false
     deserialization:
       fail-on-unknown-properties: false
+
+cache:
+  ttl: 30m
 
 springdoc:
   api-docs:
@@ -26,3 +60,6 @@ logging:
   level:
     com.recargapay.wallet.query: DEBUG
     org.springframework.data.mongodb: DEBUG
+    org.springframework.kafka: TRACE
+    org.springframework.data.redis: DEBUG
+    org.apache.kafka: TRACE
