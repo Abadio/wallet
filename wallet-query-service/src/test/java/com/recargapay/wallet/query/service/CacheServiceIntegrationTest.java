@@ -2,20 +2,15 @@ package com.recargapay.wallet.query.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.recargapay.wallet.query.config.JacksonConfig;
-import com.recargapay.wallet.query.config.TestMongoConfig;
 import com.recargapay.wallet.query.config.TestRedisConfig;
-import com.redis.testcontainers.RedisContainer;
 import com.recargapay.wallet.query.document.DailyBalanceDocument;
 import com.recargapay.wallet.query.document.TransactionHistoryDocument;
 import com.recargapay.wallet.query.document.WalletBalanceDocument;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.test.context.ActiveProfiles;
@@ -35,33 +30,14 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest(classes = {
         JacksonConfig.class,
-        TestMongoConfig.class,
         TestRedisConfig.class,
-        CacheService.class,
-        CacheServiceIntegrationTest.TestConfig.class
+        CacheService.class
 })
 @ActiveProfiles("integration")
 @Testcontainers
 class CacheServiceIntegrationTest {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(CacheServiceIntegrationTest.class);
-
-    private static final RedisContainer redisContainer = new RedisContainer("redis:7.0")
-            .withExposedPorts(6379);
-
-    @Configuration
-    static class TestConfig {
-        @Bean
-        RedisContainer redisContainer() {
-            return redisContainer;
-        }
-    }
-
-    @BeforeAll
-    static void beforeAll() {
-        redisContainer.start();
-        System.out.println("Redis container started on host: " + redisContainer.getHost() + ", port: " + redisContainer.getMappedPort(6379));
-    }
 
     @Autowired
     private CacheService cacheService;
@@ -88,12 +64,11 @@ class CacheServiceIntegrationTest {
             System.out.println("Redis keys cleared");
         } catch (Exception e) {
             System.err.println("Failed to clear Redis keys: " + e.getMessage());
+            throw new RuntimeException("Failed to clear Redis", e);
         }
 
         // Diagnostic logs
         System.out.println("Running test: " + testInfo.getDisplayName());
-        System.out.println("Redis host: " + redisContainer.getHost());
-        System.out.println("Redis port: " + redisContainer.getMappedPort(6379));
         System.out.println("Redis database: " + environment.getProperty("spring.data.redis.database"));
     }
 
@@ -292,8 +267,8 @@ class CacheServiceIntegrationTest {
         assertNotNull(cacheService.getTransactionHistoryFromCache(walletId), "Cached transaction history should not be null before TTL expiration");
         assertNotNull(cacheService.getHistoricalBalanceFromCache(walletId, date), "Cached historical balance should not be null before TTL expiration");
 
-        // Wait for TTL to expire (2 seconds + 1 second buffer)
-        Thread.sleep(3000);
+        // Wait for TTL to expire (2 seconds + 2 second buffer)
+        Thread.sleep(4000);
 
         // Assert: Data should be expired
         assertNull(cacheService.getBalanceFromCache(walletId), "Balance cache should be null after TTL expiration");
@@ -306,8 +281,8 @@ class CacheServiceIntegrationTest {
         // Use current date and previous day to make the test generic
         LocalDate today = LocalDate.now();
         LocalDate yesterday = today.minusDays(1);
-        String todayStr = today.format(DateTimeFormatter.ISO_LOCAL_DATE); // e.g., "2025-05-26"
-        String yesterdayStr = yesterday.format(DateTimeFormatter.ISO_LOCAL_DATE); // e.g., "2025-05-25"
+        String todayStr = today.format(DateTimeFormatter.ISO_LOCAL_DATE);
+        String yesterdayStr = yesterday.format(DateTimeFormatter.ISO_LOCAL_DATE);
 
         // Cache balance
         WalletBalanceDocument balance = new WalletBalanceDocument(

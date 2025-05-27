@@ -1,8 +1,9 @@
 package com.recargapay.wallet.query.config;
 
-import com.mongodb.MongoClientSettings;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
+import com.mongodb.ConnectionString;
+import com.mongodb.MongoClientSettings;
 import org.bson.UuidRepresentation;
 import org.bson.codecs.configuration.CodecRegistries;
 import org.bson.codecs.configuration.CodecRegistry;
@@ -11,55 +12,70 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.convert.converter.Converter;
-import org.springframework.data.mongodb.config.AbstractMongoClientConfiguration;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.SimpleMongoClientDatabaseFactory;
 import org.springframework.data.mongodb.core.convert.MappingMongoConverter;
 import org.springframework.data.mongodb.core.convert.MongoCustomConversions;
+import org.testcontainers.containers.MongoDBContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 
+@Testcontainers
 @Configuration
 @Profile("integration")
-public class TestMongoConfig extends AbstractMongoClientConfiguration {
+public class TestMongoConfig {
 
     @Value("${spring.data.mongodb.database}")
     private String databaseName;
 
-    @Override
-    public MongoClient mongoClient() {
+    @Container
+    private static final MongoDBContainer mongoDBContainer = new MongoDBContainer("mongo:6.0.8")
+            .withExposedPorts(27017)
+            .withReuse(true);
+
+    @Bean
+    public MongoDBContainer mongoDBContainer() {
+        if (!mongoDBContainer.isRunning()) {
+            mongoDBContainer.start();
+            System.out.println("MongoDB container started on port: " + mongoDBContainer.getMappedPort(27017));
+        }
+        return mongoDBContainer;
+    }
+
+    @Bean
+    public MongoClient mongoClient(MongoDBContainer mongoDBContainer) {
         CodecRegistry codecRegistry = CodecRegistries.fromRegistries(
                 CodecRegistries.fromCodecs(new OffsetDateTimeCodec()),
                 MongoClientSettings.getDefaultCodecRegistry()
         );
 
         MongoClientSettings clientSettings = MongoClientSettings.builder()
+                .applyConnectionString(new ConnectionString(mongoDBContainer.getReplicaSetUrl()))
                 .codecRegistry(codecRegistry)
                 .uuidRepresentation(UuidRepresentation.STANDARD)
                 .build();
 
-        // Usa MongoDB embarcado (URI gerenciada pelo Flapdoodle)
         return MongoClients.create(clientSettings);
     }
 
-    @Override
-    protected String getDatabaseName() {
-        return databaseName;
+    @Bean
+    public MongoTemplate mongoTemplate(MongoClient mongoClient, MappingMongoConverter mappingMongoConverter) {
+        SimpleMongoClientDatabaseFactory factory = new SimpleMongoClientDatabaseFactory(mongoClient, databaseName);
+        return new MongoTemplate(factory, mappingMongoConverter);
     }
 
     @Bean
-    public MongoTemplate mongoTemplate() throws Exception {
-        MongoTemplate template = new MongoTemplate(mongoDbFactory(), mappingMongoConverter());
-        return template;
-    }
-
-    @Bean
-    public MappingMongoConverter mappingMongoConverter() throws Exception {
+    public MappingMongoConverter mappingMongoConverter(MongoClient mongoClient) {
+        SimpleMongoClientDatabaseFactory factory = new SimpleMongoClientDatabaseFactory(mongoClient, databaseName);
         MappingMongoConverter converter = new MappingMongoConverter(
-                new org.springframework.data.mongodb.core.convert.DefaultDbRefResolver(mongoDbFactory()),
+                new org.springframework.data.mongodb.core.convert.DefaultDbRefResolver(factory),
                 new org.springframework.data.mongodb.core.mapping.MongoMappingContext());
         converter.setCustomConversions(customConversions());
+        converter.afterPropertiesSet(); // Ensure conversions are initialized
         return converter;
     }
 
