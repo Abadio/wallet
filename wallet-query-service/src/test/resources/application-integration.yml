@@ -6,14 +6,21 @@ spring:
       uuid-representation: standard
     redis:
       database: 0
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+    time-zone: UTC
 cache:
   ttl: 2s
 logging:
   level:
-    com.recargapay.wallet.query: DEBUG
-    org.springframework.data.mongodb: DEBUG
-    org.springframework.data.redis: DEBUG
-    org.springframework.test.context: DEBUG
-    de.flapdoodle.embed.mongo: DEBUG
-    org.testcontainers: DEBUG
-    org.testcontainers.utility.ImageNameSubstitutor: TRACE
+    com.recargapay.wallet.query: TRACE
+    org.springframework.data.mongodb: TRACE
+    org.springframework.cache: TRACE
+    org.springframework.kafka: TRACE
+    org.apache.kafka: TRACE
+    org.springframework.kafka.support.serializer: TRACE
+    org.springframework.kafka.listener: TRACE
+    org.testcontainers: TRACE

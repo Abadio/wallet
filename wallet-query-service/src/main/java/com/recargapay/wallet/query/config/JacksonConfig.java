@@ -23,6 +23,7 @@ public class JacksonConfig {
         // Enable type information for deserialization
         PolymorphicTypeValidator ptv = BasicPolymorphicTypeValidator.builder()
                 .allowIfSubType("com.recargapay.wallet.query.document") // Allow document classes
+                .allowIfSubType("com.recargapay.wallet.common.event") // Allow event classes
                 .allowIfSubType(BigDecimal.class) // Allow BigDecimal
                 .allowIfSubType(List.class) // Allow List implementations
                 .allowIfSubType("java.util") // Allow other java.util collections
