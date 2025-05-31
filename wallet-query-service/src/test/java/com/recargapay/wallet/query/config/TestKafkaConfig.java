@@ -5,6 +5,7 @@ import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.common.TopicPartition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
@@ -13,17 +14,19 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.*;
 import org.springframework.kafka.listener.CommonErrorHandler;
+import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
 import org.springframework.kafka.support.serializer.JsonSerializer;
+import org.springframework.util.backoff.FixedBackOff;
 import org.testcontainers.containers.KafkaContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 import jakarta.annotation.PostConstruct;
 import java.time.Duration;
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -49,14 +52,16 @@ public class TestKafkaConfig {
             logger.info("Kafka container started with bootstrap servers: {}", kafkaContainer.getBootstrapServers());
         }
 
-        // Create wallet-events topic
+        // Create wallet-events and wallet-query-dlt topics
         try (AdminClient adminClient = AdminClient.create(
                 Map.of("bootstrap.servers", kafkaContainer.getBootstrapServers()))) {
-            adminClient.createTopics(Collections.singletonList(new NewTopic("wallet-events", 1, (short) 1)))
-                    .all().get(30, TimeUnit.SECONDS);
-            logger.info("Topic wallet-events created");
+            adminClient.createTopics(Arrays.asList(
+                    new NewTopic("wallet-events", 1, (short) 1),
+                    new NewTopic("wallet-query-dlt", 1, (short) 1)
+            )).all().get(30, TimeUnit.SECONDS);
+            logger.info("Topics wallet-events and wallet-query-dlt created");
         } catch (Exception e) {
-            logger.warn("Failed to create topic wallet-events, it may already exist: {}", e.getMessage());
+            logger.warn("Failed to create topics, they may already exist: {}", e.getMessage());
         }
 
         // Set bootstrap.servers for Spring Boot autoconfiguration
@@ -75,6 +80,10 @@ public class TestKafkaConfig {
         configProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, org.apache.kafka.common.serialization.StringSerializer.class);
         configProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, JsonSerializer.class);
         configProps.put(JsonSerializer.ADD_TYPE_INFO_HEADERS, true);
+        configProps.put("spring.json.type.mapping",
+                "DepositedEvent:com.recargapay.wallet.common.event.DepositedEvent," +
+                        "WithdrawnEvent:com.recargapay.wallet.common.event.WithdrawnEvent," +
+                        "TransferredEvent:com.recargapay.wallet.common.event.TransferredEvent");
         logger.info("ProducerFactory configured with bootstrap servers: {}", kafkaContainer.getBootstrapServers());
         return new DefaultKafkaProducerFactory<>(configProps, new org.apache.kafka.common.serialization.StringSerializer(),
                 new JsonSerializer<>(objectMapper));
@@ -114,22 +123,38 @@ public class TestKafkaConfig {
 
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, Object> kafkaListenerContainerFactory(
-            ConsumerFactory<String, Object> consumerFactory) {
+            ConsumerFactory<String, Object> consumerFactory,
+            CommonErrorHandler errorHandler) {
         ConcurrentKafkaListenerContainerFactory<String, Object> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory);
         factory.getContainerProperties().setAckMode(org.springframework.kafka.listener.ContainerProperties.AckMode.MANUAL_IMMEDIATE);
         factory.setConcurrency(1);
-        factory.setCommonErrorHandler(kafkaErrorHandler());
-        logger.info("KafkaListenerContainerFactory configured with manual acknowledgment");
+        factory.setCommonErrorHandler(errorHandler);
+        logger.info("KafkaListenerContainerFactory configured with manual acknowledgment and DLT");
         return factory;
     }
 
     @Bean
-    public CommonErrorHandler kafkaErrorHandler() {
-        return new DefaultErrorHandler((record, exception) -> {
-            logger.error("Kafka consumer error: topic={}, key={}, value={}, exception={}",
-                    record.topic(), record.key(), record.value(), exception.getMessage(), exception);
-        });
+    public CommonErrorHandler kafkaErrorHandler(KafkaTemplate<String, Object> kafkaTemplate) {
+        // Configure DeadLetterPublishingRecoverer
+        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(
+                kafkaTemplate,
+                (record, exception) -> {
+                    logger.error("Sending record to DLT: topic=wallet-query-dlt, key={}, offset={}",
+                            record.key(), record.offset(), exception);
+                    return new TopicPartition("wallet-query-dlt", record.partition());
+                }
+        );
+
+        // Configure DefaultErrorHandler with retries
+        DefaultErrorHandler errorHandler = new DefaultErrorHandler(
+                recoverer,
+                new FixedBackOff(1000L, 3L) // 3 retries with 1-second interval
+        );
+        // Removed IllegalArgumentException from non-retryable exceptions to align with production (4 invocations: 1 initial + 3 retries)
+        errorHandler.setCommitRecovered(true); // Commit offset after sending to DLT
+        logger.info("DefaultErrorHandler configured with DLT support and retries");
+        return errorHandler;
     }
 }

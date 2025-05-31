@@ -10,9 +10,7 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Service;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 
 /**
  * Consumes Kafka events to invalidate cache entries in Redis.
@@ -128,9 +126,38 @@ public class CacheInvalidationConsumer {
             UUID fromWalletId = transferredEvent.getFromWalletId();
             UUID toWalletId = transferredEvent.getToWalletId();
             LOGGER.info("Invalidating cache for TransferredEvent: fromWalletId={}, toWalletId={}", fromWalletId, toWalletId);
-            cacheService.invalidateCache(fromWalletId);
-            cacheService.invalidateCache(toWalletId);
-            LOGGER.info("Cache invalidated for TransferredEvent: fromWalletId={}, toWalletId={}", fromWalletId, toWalletId);
+
+            boolean failed = false;
+            List<Exception> exceptions = new ArrayList<>();
+
+            try {
+                LOGGER.info("Calling invalidateCache for fromWalletId={}", fromWalletId);
+                cacheService.invalidateCache(fromWalletId);
+            } catch (Exception e) {
+                LOGGER.error("Failed to invalidate cache for fromWalletId={}", fromWalletId, e);
+                failed = true;
+                exceptions.add(e);
+            }
+
+            try {
+                LOGGER.info("Calling invalidateCache for toWalletId={}", toWalletId);
+                cacheService.invalidateCache(toWalletId);
+            } catch (Exception e) {
+                LOGGER.error("Failed to invalidate cache for toWalletId={}", toWalletId, e);
+                failed = true;
+                exceptions.add(e);
+            }
+
+            LOGGER.info("Cache invalidation processed for TransferredEvent: fromWalletId={}, toWalletId={}", fromWalletId, toWalletId);
+
+            if (failed) {
+                RuntimeException aggregateException = new RuntimeException(
+                        "Failed to invalidate cache for one or both wallets: fromWalletId=" + fromWalletId + ", toWalletId=" + toWalletId
+                );
+                exceptions.forEach(aggregateException::addSuppressed);
+                throw aggregateException;
+            }
         }
     }
+
 }
