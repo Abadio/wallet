@@ -8,6 +8,7 @@ import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.TopicPartition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
@@ -31,9 +32,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-/**
- * Kafka configuration for integration tests.
- */
 @Testcontainers
 @Configuration
 @Profile("integration")
@@ -42,30 +40,53 @@ public class TestKafkaConfig {
 
     private static final KafkaContainer kafkaContainer = new KafkaContainer(
             DockerImageName.parse("confluentinc/cp-kafka:7.2.1")
-    ).withStartupTimeout(Duration.ofSeconds(180));
+    ).withStartupTimeout(Duration.ofSeconds(300))
+            .withExposedPorts(9092, 9093)
+            .withEnv("KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR", "1")
+            .withEnv("KAFKA_TRANSACTION_STATE_LOG_MIN_ISR", "1")
+            .withEnv("KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR", "1")
+            .withEnv("KAFKA_LISTENERS", "PLAINTEXT://0.0.0.0:9093,BROKER://0.0.0.0:9092")
+            .withEnv("KAFKA_ADVERTISED_LISTENERS", "PLAINTEXT://localhost:9093,BROKER://localhost:9092")
+            .withEnv("KAFKA_INTER_BROKER_LISTENER_NAME", "BROKER")
+            .withCreateContainerCmdModifier(cmd -> cmd.getHostConfig().withMemory(2048L * 1024 * 1024)) // 2GB
+            .withReuse(false);
+
+    static {
+        try {
+            logger.info("Starting KafkaContainer...");
+            kafkaContainer.start();
+            logger.info("KafkaContainer started with bootstrap servers: {}", kafkaContainer.getBootstrapServers());
+            System.setProperty("spring.kafka.bootstrap-servers", kafkaContainer.getBootstrapServers());
+        } catch (Exception e) {
+            logger.error("Failed to start KafkaContainer: {}", e.getMessage(), e);
+            throw new RuntimeException("KafkaContainer initialization failed", e);
+        }
+    }
 
     @PostConstruct
-    public void init() {
-        if (!kafkaContainer.isRunning()) {
-            logger.info("Starting Kafka container...");
-            kafkaContainer.start();
-            logger.info("Kafka container started with bootstrap servers: {}", kafkaContainer.getBootstrapServers());
-        }
-
-        // Create wallet-events and wallet-query-dlt topics
+    public void initTopics() {
+        logger.info("Creating Kafka topics...");
         try (AdminClient adminClient = AdminClient.create(
                 Map.of("bootstrap.servers", kafkaContainer.getBootstrapServers()))) {
-            adminClient.createTopics(Arrays.asList(
+            var topics = Arrays.asList(
                     new NewTopic("wallet-events", 1, (short) 1),
-                    new NewTopic("wallet-query-dlt", 1, (short) 1)
-            )).all().get(30, TimeUnit.SECONDS);
-            logger.info("Topics wallet-events and wallet-query-dlt created");
+                    new NewTopic("wallet-query-dlt", 1, (short) 1),
+                    new NewTopic("wallet-query-dlt-failed", 1, (short) 1)
+            );
+            adminClient.createTopics(topics).all().get(30, TimeUnit.SECONDS);
+            logger.info("Topics created: wallet-events, wallet-query-dlt, wallet-query-dlt-failed");
         } catch (Exception e) {
             logger.warn("Failed to create topics, they may already exist: {}", e.getMessage());
         }
+    }
 
-        // Set bootstrap.servers for Spring Boot autoconfiguration
-        System.setProperty("spring.kafka.bootstrap-servers", kafkaContainer.getBootstrapServers());
+    @PostConstruct
+    public void verifyKafkaContainer() {
+        if (!kafkaContainer.isRunning()) {
+            logger.error("Kafka container is not running!");
+            throw new IllegalStateException("Kafka container failed to start");
+        }
+        logger.info("Kafka container is running with bootstrap servers: {}", kafkaContainer.getBootstrapServers());
     }
 
     @Bean
@@ -95,66 +116,115 @@ public class TestKafkaConfig {
         return new KafkaTemplate<>(producerFactory);
     }
 
-    @Bean
-    public ConsumerFactory<String, Object> consumerFactory(ObjectMapper objectMapper) {
+    private Map<String, Object> createConsumerProperties(String groupId) {
         Map<String, Object> props = new HashMap<>();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaContainer.getBootstrapServers());
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, "simple-kafka-consumer-test");
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, org.apache.kafka.common.serialization.StringDeserializer.class);
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
         props.put(ErrorHandlingDeserializer.VALUE_DESERIALIZER_CLASS, JsonDeserializer.class.getName());
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
         props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 1);
-        props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, 30000);
-        props.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, 10000);
+        props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, 2000);
+        props.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 300000); // Increased to 5 minutes
+        props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, 60000); // Increased to 60 seconds
+        props.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, 15000);
         props.put(JsonDeserializer.TRUSTED_PACKAGES, "com.recargapay.wallet.common.event");
         props.put(JsonDeserializer.USE_TYPE_INFO_HEADERS, true);
+        props.put(JsonDeserializer.REMOVE_TYPE_INFO_HEADERS, false);
         props.put(JsonDeserializer.TYPE_MAPPINGS,
                 "DepositedEvent:com.recargapay.wallet.common.event.DepositedEvent," +
                         "WithdrawnEvent:com.recargapay.wallet.common.event.WithdrawnEvent," +
                         "TransferredEvent:com.recargapay.wallet.common.event.TransferredEvent");
-        logger.info("ConsumerFactory configured with bootstrap servers: {}, groupId: {}",
-                kafkaContainer.getBootstrapServers(), "simple-kafka-consumer-test");
-        JsonDeserializer<Object> jsonDeserializer = new JsonDeserializer<>(Object.class, objectMapper);
-        return new DefaultKafkaConsumerFactory<>(props, new org.apache.kafka.common.serialization.StringDeserializer(),
-                new ErrorHandlingDeserializer<>(jsonDeserializer));
+        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, "java.lang.Object");
+        logger.debug("Consumer properties created for groupId: {}", groupId);
+        return props;
     }
 
     @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, Object> kafkaListenerContainerFactory(
-            ConsumerFactory<String, Object> consumerFactory,
-            CommonErrorHandler errorHandler) {
+    public ConsumerFactory<String, Object> consumerFactory(
+            ObjectMapper objectMapper,
+            @Value("${kafka.consumer.main.group-id}") String groupId) {
+        Map<String, Object> props = createConsumerProperties(groupId);
+        logger.info("ConsumerFactory configured with bootstrap servers: {}, groupId: {}",
+                kafkaContainer.getBootstrapServers(), groupId);
+        return new DefaultKafkaConsumerFactory<>(props, new org.apache.kafka.common.serialization.StringDeserializer(),
+                new ErrorHandlingDeserializer<>(new JsonDeserializer<>(objectMapper)));
+    }
+
+    @Bean
+    public ConsumerFactory<String, Object> dltConsumerFactory(
+            ObjectMapper objectMapper,
+            @Value("${kafka.consumer.dlt.group-id}") String groupId) {
+        Map<String, Object> props = createConsumerProperties(groupId);
+        logger.info("DLT ConsumerFactory configured with bootstrap servers: {}, groupId: {}",
+                kafkaContainer.getBootstrapServers(), groupId);
+        return new DefaultKafkaConsumerFactory<>(props, new org.apache.kafka.common.serialization.StringDeserializer(),
+                new ErrorHandlingDeserializer<>(new JsonDeserializer<>(objectMapper)));
+    }
+
+    @Bean
+    public ConsumerFactory<String, Object> failedDltConsumerFactory(
+            ObjectMapper objectMapper,
+            @Value("${kafka.consumer.failed-dlt.group-id}") String groupId) {
+        Map<String, Object> props = createConsumerProperties(groupId);
+        logger.info("Failed DLT ConsumerFactory configured with bootstrap servers: {}, groupId: {}",
+                kafkaContainer.getBootstrapServers(), groupId);
+        return new DefaultKafkaConsumerFactory<>(props, new org.apache.kafka.common.serialization.StringDeserializer(),
+                new ErrorHandlingDeserializer<>(new JsonDeserializer<>(objectMapper)));
+    }
+
+    private ConcurrentKafkaListenerContainerFactory<String, Object> createListenerContainerFactory(
+            ConsumerFactory<String, Object> consumerFactory, CommonErrorHandler errorHandler, String factoryName) {
         ConcurrentKafkaListenerContainerFactory<String, Object> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory);
         factory.getContainerProperties().setAckMode(org.springframework.kafka.listener.ContainerProperties.AckMode.MANUAL_IMMEDIATE);
         factory.setConcurrency(1);
         factory.setCommonErrorHandler(errorHandler);
-        logger.info("KafkaListenerContainerFactory configured with manual acknowledgment and DLT");
+        logger.info("{} KafkaListenerContainerFactory configured with manual acknowledgment", factoryName);
         return factory;
     }
 
     @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, Object> kafkaListenerContainerFactory(
+            ConsumerFactory<String, Object> consumerFactory,
+            CommonErrorHandler errorHandler) {
+        return createListenerContainerFactory(consumerFactory, errorHandler, "Main");
+    }
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, Object> dltKafkaListenerContainerFactory(
+            ConsumerFactory<String, Object> dltConsumerFactory,
+            CommonErrorHandler errorHandler) {
+        return createListenerContainerFactory(dltConsumerFactory, errorHandler, "DLT");
+    }
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, Object> failedDltKafkaListenerContainerFactory(
+            ConsumerFactory<String, Object> failedDltConsumerFactory,
+            CommonErrorHandler errorHandler) {
+        return createListenerContainerFactory(failedDltConsumerFactory, errorHandler, "Failed DLT");
+    }
+
+    @Bean
     public CommonErrorHandler kafkaErrorHandler(KafkaTemplate<String, Object> kafkaTemplate) {
-        // Configure DeadLetterPublishingRecoverer
         DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(
                 kafkaTemplate,
                 (record, exception) -> {
-                    logger.error("Sending record to DLT: topic=wallet-query-dlt, key={}, offset={}",
-                            record.key(), record.offset(), exception);
-                    return new TopicPartition("wallet-query-dlt", record.partition());
+                    logger.warn("Sending record to DLT: topic=wallet-query-dlt, key={}, value={}, exception={}",
+                            record.key(), record.value() != null ? record.value().getClass().getSimpleName() : "null", exception.getMessage());
+                    return new TopicPartition("wallet-query-dlt", -1);
                 }
         );
 
-        // Configure DefaultErrorHandler with retries
         DefaultErrorHandler errorHandler = new DefaultErrorHandler(
                 recoverer,
-                new FixedBackOff(1000L, 3L) // 3 retries with 1-second interval
+                new FixedBackOff(5000L, 0L) // Disable automatic retries
         );
-        // Removed IllegalArgumentException from non-retryable exceptions to align with production (4 invocations: 1 initial + 3 retries)
-        errorHandler.setCommitRecovered(true); // Commit offset after sending to DLT
-        logger.info("DefaultErrorHandler configured with DLT support and retries");
+        errorHandler.setCommitRecovered(true);
+        logger.info("DefaultErrorHandler configured with DLT support and no automatic retries");
         return errorHandler;
     }
 }

@@ -12,9 +12,6 @@ import org.springframework.stereotype.Service;
 
 import java.util.*;
 
-/**
- * Consumes Kafka events to invalidate cache entries in Redis.
- */
 @Service
 public class CacheInvalidationConsumer {
     private static final Logger LOGGER = LoggerFactory.getLogger(CacheInvalidationConsumer.class);
@@ -27,11 +24,6 @@ public class CacheInvalidationConsumer {
         this.eventProcessors = initializeEventProcessors();
     }
 
-    /**
-     * Initializes the map of event processors for each supported event type.
-     *
-     * @return Map of event classes to their respective processors
-     */
     private Map<Class<?>, EventProcessor> initializeEventProcessors() {
         Map<Class<?>, EventProcessor> processors = new HashMap<>();
         processors.put(DepositedEvent.class, new DepositedEventProcessor());
@@ -40,15 +32,9 @@ public class CacheInvalidationConsumer {
         return processors;
     }
 
-    /**
-     * Consumes events from the 'wallet-events' Kafka topic and invalidates cache entries.
-     *
-     * @param record The Kafka ConsumerRecord containing the event
-     * @param acknowledgment Kafka acknowledgment for manual commit
-     */
     @KafkaListener(
             topics = "wallet-events",
-            groupId = "${spring.kafka.consumer.group-id}",
+            groupId = "${kafka.consumer.main.group-id}",
             containerFactory = "kafkaListenerContainerFactory"
     )
     public void consumeEvent(ConsumerRecord<String, Object> record, Acknowledgment acknowledgment) {
@@ -77,20 +63,14 @@ public class CacheInvalidationConsumer {
         } catch (Exception e) {
             LOGGER.error("Error processing event: topic={}, key={}, offset={}, value={}",
                     record.topic(), record.key(), record.offset(), record.value(), e);
-            throw e; // Let KafkaErrorHandler handle it
+            throw e;
         }
     }
 
-    /**
-     * Interface for processing specific event types.
-     */
     private interface EventProcessor {
         void process(Object event);
     }
 
-    /**
-     * Processor for DepositedEvent, invalidating cache for the affected wallet.
-     */
     private class DepositedEventProcessor implements EventProcessor {
         @Override
         public void process(Object event) {
@@ -102,9 +82,6 @@ public class CacheInvalidationConsumer {
         }
     }
 
-    /**
-     * Processor for WithdrawnEvent, invalidating cache for the affected wallet.
-     */
     private class WithdrawnEventProcessor implements EventProcessor {
         @Override
         public void process(Object event) {
@@ -116,9 +93,6 @@ public class CacheInvalidationConsumer {
         }
     }
 
-    /**
-     * Processor for TransferredEvent, invalidating cache for both source and destination wallets.
-     */
     private class TransferredEventProcessor implements EventProcessor {
         @Override
         public void process(Object event) {
@@ -159,5 +133,4 @@ public class CacheInvalidationConsumer {
             }
         }
     }
-
 }

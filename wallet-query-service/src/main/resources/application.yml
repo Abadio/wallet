@@ -55,11 +55,3 @@ springdoc:
   swagger-ui:
     path: /swagger-ui.html
     enabled: true
-
-logging:
-  level:
-    com.recargapay.wallet.query: DEBUG
-    org.springframework.data.mongodb: DEBUG
-    org.springframework.kafka: TRACE
-    org.springframework.data.redis: DEBUG
-    org.apache.kafka: TRACE

@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!--
+        This is the sole logging configuration file for tests.
+        It enforces WARN and ERROR levels only, suppressing TRACE and DEBUG.
+    -->
+    <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <fieldNames>
+                <timestamp>timestamp</timestamp>
+                <level>level</level>
+                <logger>logger</logger>
+                <message>message</message>
+                <thread>thread</thread>
+            </fieldNames>
+        </encoder>
+    </appender>
+
+    <appender name="JSON_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/wallet-query-service.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>logs/wallet-query-service.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <fieldNames>
+                <timestamp>timestamp</timestamp>
+                <level>level</level>
+                <logger>logger</logger>
+                <message>message</message>
+                <thread>thread</thread>
+            </fieldNames>
+        </encoder>
+    </appender>
+
+    <!-- Explicitly set WARN level for specific packages to suppress TRACE and DEBUG -->
+    <logger name="org.testcontainers" level="WARN"/>
+    <logger name="org.apache.kafka" level="WARN"/>
+    <logger name="org.springframework.kafka" level="WARN"/>
+    <logger name="com.github.dockerjava" level="WARN"/>
+    <logger name="org.testcontainers.shaded.com.github.dockerjava" level="WARN"/>
+    <logger name="com.recargapay.wallet.query" level="WARN"/>
+    <logger name="org.springframework.data.mongodb" level="WARN"/>
+    <logger name="org.springframework.cache" level="WARN"/>
+    <logger name="org.springframework.kafka.support.serializer" level="WARN"/>
+    <logger name="org.springframework.kafka.listener" level="WARN"/>
+    <logger name="org.springframework" level="WARN"/>
+    <logger name="com.zaxxer.hikari" level="WARN"/>
+    <logger name="org.mongodb.driver" level="WARN"/>
+
+    <!-- Root logger set to WARN to catch all other packages -->
+    <root level="WARN">
+        <appender-ref ref="JSON_CONSOLE"/>
+        <appender-ref ref="JSON_FILE"/>
+    </root>
+</configuration>

@@ -1,4 +1,6 @@
 spring:
+  application:
+    name: wallet-query-service
   data:
     mongodb:
       auto-index-creation: true
@@ -12,15 +14,25 @@ spring:
     deserialization:
       fail-on-unknown-properties: false
     time-zone: UTC
+  server:
+    port: 8082
+  kafka:
+    bootstrap-servers: ${spring.kafka.bootstrap-servers}
+kafka:
+  consumer:
+    main:
+      group-id: simple-kafka-consumer-test
+    dlt:
+      group-id: dlt-kafka-consumer-test
+    failed-dlt:
+      group-id: test-failed-dlt-group
 cache:
   ttl: 2s
-logging:
-  level:
-    com.recargapay.wallet.query: TRACE
-    org.springframework.data.mongodb: TRACE
-    org.springframework.cache: TRACE
-    org.springframework.kafka: TRACE
-    org.apache.kafka: TRACE
-    org.springframework.kafka.support.serializer: TRACE
-    org.springframework.kafka.listener: TRACE
-    org.testcontainers: TRACE
+management:
+  endpoints:
+    web:
+      exposure:
+        include: prometheus, health, metrics
+  metrics:
+    tags:
+      application: ${spring.application.name}

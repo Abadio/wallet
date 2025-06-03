@@ -89,34 +89,28 @@
             <version>2.2.4</version>
             <scope>test</scope>
         </dependency>
-        <!-- Add Awaitility -->
         <dependency>
             <groupId>org.awaitility</groupId>
             <artifactId>awaitility</artifactId>
             <version>4.2.1</version>
             <scope>test</scope>
         </dependency>
-        <!-- Add Mockito -->
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-core</artifactId>
             <version>5.12.0</version>
             <scope>test</scope>
         </dependency>
-
+        <!-- New dependencies for observability -->
         <dependency>
-            <groupId>org.testcontainers</groupId>
-            <artifactId>kafka</artifactId>
-            <version>1.20.1</version>
-            <scope>test</scope>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.testcontainers</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <version>1.20.1</version>
-            <scope>test</scope>
+            <groupId>net.logstash.logback</groupId>
+            <artifactId>logstash-logback-encoder</artifactId>
+            <version>7.4</version>
         </dependency>
-
     </dependencies>
 
     <build>

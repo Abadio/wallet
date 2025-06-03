@@ -1,0 +1,14 @@
+filebeat.inputs:
+  - type: filestream
+    id: wallet-query-service
+    paths:
+      - /logs/*.log
+    fields:
+      application: wallet-query-service
+    fields_under_root: true
+
+output.elasticsearch:
+  hosts: ["elasticsearch_test:9200"]
+
+setup.kibana:
+  host: "kibana_test:5601"
