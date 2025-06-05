@@ -35,6 +35,7 @@ public class TestMongoConfig {
     @Container
     private static final MongoDBContainer mongoDBContainer = new MongoDBContainer("mongo:6.0.8")
             .withExposedPorts(27017)
+            .withCreateContainerCmdModifier(cmd -> cmd.getHostConfig().withMemory(512L * 1024 * 1024)) // 512MB
             .withReuse(true);
 
     @Bean

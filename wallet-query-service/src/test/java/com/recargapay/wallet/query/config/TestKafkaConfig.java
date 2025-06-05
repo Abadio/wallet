@@ -15,6 +15,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.*;
 import org.springframework.kafka.listener.CommonErrorHandler;
+import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
@@ -48,15 +49,20 @@ public class TestKafkaConfig {
             .withEnv("KAFKA_LISTENERS", "PLAINTEXT://0.0.0.0:9093,BROKER://0.0.0.0:9092")
             .withEnv("KAFKA_ADVERTISED_LISTENERS", "PLAINTEXT://localhost:9093,BROKER://localhost:9092")
             .withEnv("KAFKA_INTER_BROKER_LISTENER_NAME", "BROKER")
-            .withCreateContainerCmdModifier(cmd -> cmd.getHostConfig().withMemory(2048L * 1024 * 1024)) // 2GB
-            .withReuse(false);
+            .withEnv("KAFKA_HEAP_OPTS", "-Xmx256m -Xms256m") // Reduced memory
+            .withCreateContainerCmdModifier(cmd -> cmd.getHostConfig().withMemory(512L * 1024 * 1024)) // 512MB
+            .withReuse(true);
 
     static {
         try {
-            logger.info("Starting KafkaContainer...");
-            kafkaContainer.start();
-            logger.info("KafkaContainer started with bootstrap servers: {}", kafkaContainer.getBootstrapServers());
-            System.setProperty("spring.kafka.bootstrap-servers", kafkaContainer.getBootstrapServers());
+            if (!kafkaContainer.isRunning()) {
+                logger.info("Starting KafkaContainer...");
+                kafkaContainer.start();
+                logger.info("KafkaContainer started with bootstrap servers: {}", kafkaContainer.getBootstrapServers());
+                System.setProperty("spring.kafka.bootstrap-servers", kafkaContainer.getBootstrapServers());
+            } else {
+                logger.info("KafkaContainer already running with bootstrap servers: {}", kafkaContainer.getBootstrapServers());
+            }
         } catch (Exception e) {
             logger.error("Failed to start KafkaContainer: {}", e.getMessage(), e);
             throw new RuntimeException("KafkaContainer initialization failed", e);
@@ -125,11 +131,11 @@ public class TestKafkaConfig {
         props.put(ErrorHandlingDeserializer.VALUE_DESERIALIZER_CLASS, JsonDeserializer.class.getName());
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
-        props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 1);
-        props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, 2000);
-        props.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 300000); // Increased to 5 minutes
-        props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, 60000); // Increased to 60 seconds
-        props.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, 15000);
+        props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 1); // Process one message at a time
+        props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, 100); // Short wait to reduce memory
+        props.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 30000); // Reduced to avoid long sessions
+        props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, 10000); // Stable session timeout
+        props.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, 3000); // Stable heartbeat
         props.put(JsonDeserializer.TRUSTED_PACKAGES, "com.recargapay.wallet.common.event");
         props.put(JsonDeserializer.USE_TYPE_INFO_HEADERS, true);
         props.put(JsonDeserializer.REMOVE_TYPE_INFO_HEADERS, false);
@@ -138,6 +144,8 @@ public class TestKafkaConfig {
                         "WithdrawnEvent:com.recargapay.wallet.common.event.WithdrawnEvent," +
                         "TransferredEvent:com.recargapay.wallet.common.event.TransferredEvent");
         props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, "java.lang.Object");
+        props.put(ConsumerConfig.FETCH_MAX_BYTES_CONFIG, 128 * 1024); // 128KB
+        props.put(ConsumerConfig.MAX_PARTITION_FETCH_BYTES_CONFIG, 64 * 1024); // 64KB
         logger.debug("Consumer properties created for groupId: {}", groupId);
         return props;
     }
@@ -180,10 +188,12 @@ public class TestKafkaConfig {
         ConcurrentKafkaListenerContainerFactory<String, Object> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory);
-        factory.getContainerProperties().setAckMode(org.springframework.kafka.listener.ContainerProperties.AckMode.MANUAL_IMMEDIATE);
-        factory.setConcurrency(1);
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+        factory.setConcurrency(1); // Single consumer thread
+        factory.getContainerProperties().setPollTimeout(500); // Short poll timeout
         factory.setCommonErrorHandler(errorHandler);
-        logger.info("{} KafkaListenerContainerFactory configured with manual acknowledgment", factoryName);
+        factory.getContainerProperties().setConsumerStartTimeout(Duration.ofSeconds(30));
+        logger.info("{} KafkaListenerContainerFactory configured with concurrency=1", factoryName);
         return factory;
     }
 

@@ -2,6 +2,8 @@ package com.recargapay.wallet.query.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.redis.testcontainers.RedisContainer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
@@ -15,24 +17,32 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import jakarta.annotation.PostConstruct;
 
-/**
- * Configures Redis for integration tests using Testcontainers.
- */
 @Testcontainers
 @Configuration
 @Profile("integration")
 public class TestRedisConfig {
+    private static final Logger logger = LoggerFactory.getLogger(TestRedisConfig.class);
 
     @Container
     private static final RedisContainer redisContainer = new RedisContainer(RedisContainer.DEFAULT_IMAGE_NAME.withTag("7.0.12"))
             .withExposedPorts(6379)
+            .withCommand("redis-server --maxmemory 256mb") // Limit Redis memory
+            .withCreateContainerCmdModifier(cmd -> cmd.getHostConfig().withMemory(512L * 1024 * 1024)) // 512MB
             .withReuse(true);
 
     @PostConstruct
     public void init() {
-        if (!redisContainer.isRunning()) {
-            redisContainer.start();
-            System.out.println("Redis container started on port: " + redisContainer.getMappedPort(6379));
+        try {
+            if (!redisContainer.isRunning()) {
+                logger.info("Starting Redis container...");
+                redisContainer.start();
+                logger.info("Redis container started on host: {}, port: {}", redisContainer.getHost(), redisContainer.getMappedPort(6379));
+            } else {
+                logger.info("Redis container already running on host: {}, port: {}", redisContainer.getHost(), redisContainer.getMappedPort(6379));
+            }
+        } catch (Exception e) {
+            logger.error("Failed to start Redis container: {}", e.getMessage(), e);
+            throw new IllegalStateException("Failed to start Redis container", e);
         }
     }
 
@@ -47,10 +57,12 @@ public class TestRedisConfig {
         config.setHostName(redisContainer.getHost());
         config.setPort(redisContainer.getMappedPort(6379));
         config.setDatabase(0);
+        logger.info("Configuring LettuceConnectionFactory with host: {}, port: {}", redisContainer.getHost(), redisContainer.getMappedPort(6379));
         return new LettuceConnectionFactory(config);
     }
 
     @Bean
+    @SuppressWarnings("deprecation")
     public RedisTemplate<String, Object> redisTemplate(LettuceConnectionFactory connectionFactory, ObjectMapper objectMapper) {
         RedisTemplate<String, Object> template = new RedisTemplate<>();
         template.setConnectionFactory(connectionFactory);
