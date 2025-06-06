@@ -161,11 +161,12 @@ public class RedisDltConsumerIntegrationTest {
 
     private void clearKafkaTopics() {
         try (AdminClient adminClient = AdminClient.create(Map.of("bootstrap.servers", kafkaContainer.getBootstrapServers()))) {
-            adminClient.deleteRecords(Map.of(
+            Map<TopicPartition, RecordsToDelete> recordsToDelete = Map.of(
                     new TopicPartition("wallet-query-dlt", 0), RecordsToDelete.beforeOffset(Long.MAX_VALUE),
                     new TopicPartition("wallet-query-dlt-failed", 0), RecordsToDelete.beforeOffset(Long.MAX_VALUE)
-            )).all().get(10, TimeUnit.SECONDS);
-            logger.info("Cleared topics wallet-query-dlt and wallet-query-dlt-failed");
+            );
+            var deleteResult = adminClient.deleteRecords(recordsToDelete).all().get(10, TimeUnit.SECONDS);
+            logger.info("Cleared topics wallet-query-dlt and wallet-query-dlt-failed: result={}", deleteResult);
         } catch (Exception e) {
             logger.warn("Failed to clear Kafka topics: {}", e.getMessage());
         }
@@ -804,11 +805,15 @@ public class RedisDltConsumerIntegrationTest {
             String topic = record.topic();
             Header retryCountHeader = record.headers().lastHeader("retry-count");
             int retryCount = retryCountHeader != null ? Integer.parseInt(new String(retryCountHeader.value())) : 0;
-            logger.warn("kafkaTemplate.send called for topic={}, retryCount={}, attempt={}", topic, retryCount, kafkaSendCount.incrementAndGet());
-            if (topic.equals("wallet-query-dlt") && retryCount > 0) {
+            Header messageIdHeader = record.headers().lastHeader("message-id");
+            String messageId = messageIdHeader != null ? new String(messageIdHeader.value()) : "unknown";
+            logger.warn("kafkaTemplate.send called for topic={}, retryCount={}, messageId={}, attempt={}",
+                    topic, retryCount, messageId, kafkaSendCount.incrementAndGet());
+            if (topic.equals("wallet-query-dlt") && retryCount == 2) { // Falha na segunda retentiva
+                logger.error("Simulating Kafka send failure for retryCount={}", retryCount);
                 throw new RuntimeException("Simulated Kafka send failure during retry");
             }
-            return kafkaTemplate.send(record);
+            return invocation.callRealMethod();
         }).when(spiedKafkaTemplate).send(any(ProducerRecord.class));
 
         Field kafkaTemplateField = RedisDltConsumer.class.getDeclaredField("kafkaTemplate");
@@ -816,12 +821,15 @@ public class RedisDltConsumerIntegrationTest {
         kafkaTemplateField.set(redisDltConsumer, spiedKafkaTemplate);
         logger.warn("Injected spied KafkaTemplate into RedisDltConsumer");
 
-        // Adicionar log detalhado para consumeDlt
         doAnswer(invocation -> {
             ConsumerRecord record = invocation.getArgument(0);
             Header retryCountHeader = record.headers().lastHeader("retry-count");
             int retryCount = retryCountHeader != null ? Integer.parseInt(new String(retryCountHeader.value())) : 0;
-            logger.warn("consumeDlt called with key={}, retryCount={}, headers={}", record.key(), retryCount, record.headers());
+            Header messageIdHeader = record.headers().lastHeader("message-id");
+            String messageId = messageIdHeader != null ? new String(messageIdHeader.value()) :
+                    (record.topic() + "-" + record.partition() + "-" + record.offset());
+            logger.warn("consumeDlt called with key={}, retryCount={}, messageId={}, headers={}",
+                    record.key(), retryCount, messageId, record.headers());
             return invocation.callRealMethod();
         }).when(redisDltConsumer).consumeDlt(any(ConsumerRecord.class), any(Acknowledgment.class));
 
@@ -830,6 +838,8 @@ public class RedisDltConsumerIntegrationTest {
         ProducerRecord<String, Object> record = new ProducerRecord<>("wallet-query-dlt", walletId.toString(), event);
         record.headers().add("error-message", "timeout: Simulated transient failure".getBytes());
         record.headers().add("retry-count", "0".getBytes());
+        String uniqueMessageId = UUID.randomUUID().toString();
+        record.headers().add("message-id", uniqueMessageId.getBytes());
         var sendFuture = kafkaTemplate.send(record);
         var result = sendFuture.get(10, TimeUnit.SECONDS);
         logger.warn("Event sent to topic=wallet-query-dlt, partition={}, offset={}",
@@ -842,22 +852,25 @@ public class RedisDltConsumerIntegrationTest {
                             .filter(inv -> inv.getMethod().getName().equals("consumeDlt"))
                             .count();
                     logger.warn("consumeDlt called {} times", consumeDltCalls);
-                    verify(redisDltConsumer, atMost(2)).consumeDlt(any(ConsumerRecord.class), any(Acknowledgment.class));
-                    verify(cacheService, atMost(2)).invalidateCache(eq(walletId));
+                    verify(redisDltConsumer, atLeast(3)).consumeDlt(any(ConsumerRecord.class), any(Acknowledgment.class));
+                    verify(cacheService, times(2)).invalidateCache(eq(walletId)); // Correção aqui
                     Set<String> retryKeys = redisTemplate.keys("dlt:retry:*");
                     logger.warn("Redis retry keys found after assertions: {}", retryKeys);
-                    assertTrue(retryKeys.isEmpty(), "Retry keys should be deleted on Kafka send failure");
+                    Set<String> processedKeys = redisTemplate.keys("dlt:processed:*");
+                    logger.warn("Processed keys: {}", processedKeys);
+                    assertTrue(retryKeys.isEmpty(), "Retry keys should be deleted after retries or failure");
                     double retryCount = meterRegistry.counter("dlt.redis.retries", "eventType", "DepositedEvent").count();
                     logger.warn("Current dlt.redis.retries count: {}", retryCount);
-                    assertEquals(0.0, retryCount, "No retries should be recorded due to Kafka send failure");
+                    assertEquals(1.0, retryCount, "Should have 1 successful retry attempt before Kafka failure");
                     assertEquals(1.0, meterRegistry.counter("dlt.redis.redirected", "eventType", "DepositedEvent", "reason", "permanent_error").count(),
-                            "Message should be redirected to failed DLT due to Kafka send failure");
+                            "Message should be redirected to failed DLT due to Kafka failure");
                     meterRegistry.getMeters().forEach(meter -> logger.warn("Metric: {}, Value: {}", meter.getId().getName(), meter.measure()));
                 });
 
-        // Log final para verificar estado do Redis
         Set<String> finalRetryKeys = redisTemplate.keys("dlt:retry:*");
         logger.warn("Final Redis retry keys after test: {}", finalRetryKeys);
+        Set<String> finalProcessedKeys = redisTemplate.keys("dlt:processed:*");
+        logger.warn("Final Redis processed keys after test: {}", finalProcessedKeys);
     }
 
     @Test

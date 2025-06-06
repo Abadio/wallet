@@ -190,10 +190,10 @@ public class TestKafkaConfig {
         factory.setConsumerFactory(consumerFactory);
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
         factory.setConcurrency(1); // Single consumer thread
-        factory.getContainerProperties().setPollTimeout(500); // Short poll timeout
+        factory.getContainerProperties().setPollTimeout(1000); // Aumentado para 1000ms
         factory.setCommonErrorHandler(errorHandler);
         factory.getContainerProperties().setConsumerStartTimeout(Duration.ofSeconds(30));
-        logger.info("{} KafkaListenerContainerFactory configured with concurrency=1", factoryName);
+        logger.info("{} KafkaListenerContainerFactory configured with concurrency=1, pollTimeout=1000ms", factoryName);
         return factory;
     }
 

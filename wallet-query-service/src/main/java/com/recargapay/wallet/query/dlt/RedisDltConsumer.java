@@ -71,17 +71,21 @@ public class RedisDltConsumer {
         String eventType = value != null ? value.getClass().getSimpleName() : "null";
         Header retryCountHeader = record.headers().lastHeader("retry-count");
         int retryCount = retryCountHeader != null ? Integer.parseInt(new String(retryCountHeader.value())) : 0;
-        String messageId = record.topic() + "-" + record.partition() + "-" + record.offset();
+        Header messageIdHeader = record.headers().lastHeader("message-id");
+        String messageId = messageIdHeader != null ? new String(messageIdHeader.value()) :
+                (record.topic() + "-" + record.partition() + "-" + record.offset());
 
         // Verificar se a mensagem já foi processada
         String processedKey = "dlt:processed:" + messageId;
+        logger.debug("Checking processed key: processedKey={}, messageId={}, key={}, retryCount={}",
+                processedKey, messageId, key, retryCount);
         try {
             Boolean alreadyProcessed = redisTemplate.opsForValue().setIfAbsent(processedKey, "true", 120, TimeUnit.SECONDS);
             if (Boolean.FALSE.equals(alreadyProcessed)) {
                 logger.warn("Skipping already processed message: key={}, messageId={}, retryCount={}", key, messageId, retryCount);
                 acknowledgment.acknowledge();
                 try {
-                    Thread.sleep(500); // Aumentado para 500ms
+                    Thread.sleep(500);
                     logger.debug("Waited after acknowledgment for processedKey={}", processedKey);
                 } catch (InterruptedException ie) {
                     logger.error("Interrupted during acknowledgment sleep: {}", ie.getMessage(), ie);
@@ -103,7 +107,7 @@ public class RedisDltConsumer {
                 meterRegistry.counter("dlt.redis.discarded", "reason", "null_event").increment();
                 acknowledgment.acknowledge();
                 try {
-                    Thread.sleep(500); // Aumentado para 500ms
+                    Thread.sleep(500);
                     logger.debug("Waited after acknowledgment for null event: messageId={}", messageId);
                 } catch (InterruptedException ie) {
                     logger.error("Interrupted during acknowledgment sleep: {}", ie.getMessage(), ie);
@@ -118,7 +122,7 @@ public class RedisDltConsumer {
                 meterRegistry.counter("dlt.redis.discarded", "reason", "keys_expired", "eventType", eventType).increment();
                 acknowledgment.acknowledge();
                 try {
-                    Thread.sleep(500); // Aumentado para 500ms
+                    Thread.sleep(500);
                     logger.debug("Waited after acknowledgment for expired key: messageId={}", messageId);
                 } catch (InterruptedException ie) {
                     logger.error("Interrupted during acknowledgment sleep: {}", ie.getMessage(), ie);
@@ -133,7 +137,7 @@ public class RedisDltConsumer {
                 meterRegistry.counter("dlt.redis.discarded", "reason", "unsupported_event").increment();
                 acknowledgment.acknowledge();
                 try {
-                    Thread.sleep(500); // Aumentado para 500ms
+                    Thread.sleep(500);
                     logger.debug("Waited after acknowledgment for unsupported event: messageId={}", messageId);
                 } catch (InterruptedException ie) {
                     logger.error("Interrupted during acknowledgment sleep: {}", ie.getMessage(), ie);
@@ -155,7 +159,6 @@ public class RedisDltConsumer {
                     key, eventType, retryCount, messageId, e);
             handlePermanentError(key, eventType, e.getMessage(), record, acknowledgment);
         } finally {
-            // Garantir que a chave processed tenha um tempo de expiração
             try {
                 redisTemplate.expire(processedKey, 120, TimeUnit.SECONDS);
                 logger.debug("Set expiration for processedKey={}", processedKey);
@@ -232,7 +235,8 @@ public class RedisDltConsumer {
                 logger.info("Successfully invalidated cache for DepositedEvent: walletId={}", depositedEvent.getWalletId());
                 acknowledgment.acknowledge();
                 try {
-                    Thread.sleep(100); // Ensure acknowledgment is processed
+                    Thread.sleep(500); // Aumentado para 500ms
+                    logger.debug("Waited after acknowledgment for DepositedEvent: key={}", key);
                 } catch (InterruptedException ie) {
                     logger.error("Interrupted during acknowledgment sleep: {}", ie.getMessage(), ie);
                     Thread.currentThread().interrupt();
@@ -290,7 +294,8 @@ public class RedisDltConsumer {
                         fromWalletId, toWalletId);
                 acknowledgment.acknowledge();
                 try {
-                    Thread.sleep(100); // Ensure acknowledgment is processed
+                    Thread.sleep(500); // Aumentado para 500ms
+                    logger.debug("Waited after acknowledgment for TransferredEvent: key={}", key);
                 } catch (InterruptedException ie) {
                     logger.error("Interrupted during acknowledgment sleep: {}", ie.getMessage(), ie);
                     Thread.currentThread().interrupt();
@@ -330,7 +335,8 @@ public class RedisDltConsumer {
                 logger.info("Successfully invalidated cache for WithdrawnEvent: walletId={}", withdrawnEvent.getWalletId());
                 acknowledgment.acknowledge();
                 try {
-                    Thread.sleep(100); // Ensure acknowledgment is processed
+                    Thread.sleep(500); // Aumentado para 500ms
+                    logger.debug("Waited after acknowledgment for WithdrawnEvent: key={}", key);
                 } catch (InterruptedException ie) {
                     logger.error("Interrupted during acknowledgment sleep: {}", ie.getMessage(), ie);
                     Thread.currentThread().interrupt();
@@ -369,62 +375,66 @@ public class RedisDltConsumer {
                         key, retryCount, messageId, retryKey);
                 acknowledgment.acknowledge();
                 try {
-                    Thread.sleep(500); // Ensure acknowledgment is processed
+                    Thread.sleep(500);
+                    logger.debug("Waited after acknowledgment for duplicate retry: messageId={}", messageId);
                 } catch (InterruptedException ie) {
                     logger.error("Interrupted during acknowledgment sleep: {}", ie.getMessage(), ie);
                     Thread.currentThread().interrupt();
                 }
                 return;
             }
+
+            ProducerRecord<String, Object> retryRecord = new ProducerRecord<>(DLT_TOPIC, key, record.value());
+            for (Header header : record.headers()) {
+                if (!header.key().equals("retry-count") && !header.key().equals("error-message")) {
+                    retryRecord.headers().add(header);
+                }
+            }
+            int newRetryCount = retryCount + 1;
+            retryRecord.headers().add("retry-count", String.valueOf(newRetryCount).getBytes());
+            retryRecord.headers().add("error-message", errorMessage.getBytes());
+            retryRecord.headers().add("message-id", messageId.getBytes());
+            logger.warn("Attempting to re-send event to {}: key={}, retryCount={}, messageId={}, retryKey={}",
+                    DLT_TOPIC, key, newRetryCount, messageId, retryKey);
+
+            // Deletar a chave de retry antes do envio
+            try {
+                redisTemplate.delete(retryKey);
+                logger.debug("Deleted retry key before send: {}", retryKey);
+            } catch (Exception redisEx) {
+                logger.error("Failed to delete retry key {}: error={}", retryKey, redisEx.getMessage(), redisEx);
+            }
+
+            try {
+                logger.debug("Sending retry record to Kafka: topic={}, key={}, retryCount={}, messageId={}",
+                        DLT_TOPIC, key, newRetryCount, messageId);
+                kafkaTemplate.send(retryRecord).get(5, TimeUnit.SECONDS);
+                meterRegistry.counter("dlt.redis.retries", "eventType", eventType).increment();
+                logger.warn("Successfully re-sent event to {}: key={}, retryCount={}, messageId={}, retryKey={}",
+                        DLT_TOPIC, key, newRetryCount, messageId, retryKey);
+                acknowledgment.acknowledge();
+                try {
+                    Thread.sleep(500);
+                    logger.debug("Waited after acknowledgment for successful retry: messageId={}", messageId);
+                } catch (InterruptedException ie) {
+                    logger.error("Interrupted during acknowledgment sleep: {}", ie.getMessage(), ie);
+                    Thread.currentThread().interrupt();
+                }
+            } catch (Exception e) {
+                logger.error("Failed to re-send event to {}: key={}, retryCount={}, messageId={}, retryKey={}, error={}",
+                        DLT_TOPIC, key, newRetryCount, messageId, retryKey, e.getMessage(), e);
+                handlePermanentError(key, eventType, "Kafka send failure: " + e.getMessage(), record, acknowledgment);
+            }
         } catch (Exception e) {
             logger.error("Failed to check/set retry key in Redis: key={}, retryCount={}, messageId={}, retryKey={}, error={}",
                     key, retryCount, messageId, retryKey, e.getMessage(), e);
+            try {
+                redisTemplate.delete(retryKey);
+                logger.debug("Deleted retry key on error: {}", retryKey);
+            } catch (Exception redisEx) {
+                logger.error("Failed to delete retry key {}: error={}", retryKey, redisEx.getMessage(), redisEx);
+            }
             handlePermanentError(key, eventType, "Redis failure during retry: " + e.getMessage(), record, acknowledgment);
-            return;
-        }
-
-        ProducerRecord<String, Object> retryRecord = new ProducerRecord<>(DLT_TOPIC, key, record.value());
-        for (Header header : record.headers()) {
-            if (!header.key().equals("retry-count") && !header.key().equals("error-message")) {
-                retryRecord.headers().add(header);
-            }
-        }
-        int newRetryCount = retryCount + 1;
-        retryRecord.headers().add("retry-count", String.valueOf(newRetryCount).getBytes());
-        retryRecord.headers().add("error-message", errorMessage.getBytes());
-        retryRecord.headers().add("message-id", messageId.getBytes());
-        logger.warn("Re-sending event to {}: key={}, retryCount={}, messageId={}, retryKey={}",
-                DLT_TOPIC, key, newRetryCount, messageId, retryKey);
-        try {
-            kafkaTemplate.send(retryRecord).get(5, TimeUnit.SECONDS);
-            meterRegistry.counter("dlt.redis.retries", "eventType", eventType).increment();
-            logger.warn("Successfully re-sent event to {}: key={}, retryCount={}, messageId={}, retryKey={}, incremented dlt.redis.retries",
-                    DLT_TOPIC, key, newRetryCount, messageId, retryKey);
-            // Deletar a chave de retry após sucesso
-            try {
-                redisTemplate.delete(retryKey);
-                logger.debug("Deleted retry key after successful send: {}", retryKey);
-            } catch (Exception redisEx) {
-                logger.error("Failed to delete retry key {}: error={}", retryKey, redisEx.getMessage(), redisEx);
-            }
-            acknowledgment.acknowledge();
-            try {
-                Thread.sleep(500); // Ensure acknowledgment is processed
-            } catch (InterruptedException ie) {
-                logger.error("Interrupted during acknowledgment sleep: {}", ie.getMessage(), ie);
-                Thread.currentThread().interrupt();
-            }
-        } catch (Exception e) {
-            logger.error("Failed to re-send event to {}: key={}, retryCount={}, messageId={}, retryKey={}, error={}",
-                    DLT_TOPIC, key, newRetryCount, messageId, retryKey, e.getMessage(), e);
-            // Garantir que a chave de retry seja deletada antes de redirecionar
-            try {
-                redisTemplate.delete(retryKey);
-                logger.debug("Deleted retry key: {}", retryKey);
-            } catch (Exception redisEx) {
-                logger.error("Failed to delete retry key {}: error={}", retryKey, redisEx.getMessage(), redisEx);
-            }
-            handlePermanentError(key, eventType, "Kafka send failure: " + e.getMessage(), record, acknowledgment);
         }
     }
 }
