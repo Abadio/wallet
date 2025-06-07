@@ -10,7 +10,11 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Service;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 @Service
 public class CacheInvalidationConsumer {
@@ -38,6 +42,12 @@ public class CacheInvalidationConsumer {
             containerFactory = "kafkaListenerContainerFactory"
     )
     public void consumeEvent(ConsumerRecord<String, Object> record, Acknowledgment acknowledgment) {
+        // Apenas delega para o método com a lógica, tornando-o testável
+        processEvent(record, acknowledgment);
+    }
+
+    // Método público com a lógica real para ser testado
+    public void processEvent(ConsumerRecord<String, Object> record, Acknowledgment acknowledgment) {
         LOGGER.info("Processing ConsumerRecord: topic={}, key={}, offset={}",
                 record.topic(), record.key(), record.offset());
         LOGGER.debug("Record value: {}", record.value());
@@ -63,6 +73,7 @@ public class CacheInvalidationConsumer {
         } catch (Exception e) {
             LOGGER.error("Error processing event: topic={}, key={}, offset={}, value={}",
                     record.topic(), record.key(), record.offset(), record.value(), e);
+            // Re-lança a exceção para que o ErrorHandler do Kafka a capture e envie para o DLT.
             throw e;
         }
     }
@@ -101,36 +112,11 @@ public class CacheInvalidationConsumer {
             UUID toWalletId = transferredEvent.getToWalletId();
             LOGGER.info("Invalidating cache for TransferredEvent: fromWalletId={}, toWalletId={}", fromWalletId, toWalletId);
 
-            boolean failed = false;
-            List<Exception> exceptions = new ArrayList<>();
-
-            try {
-                LOGGER.info("Calling invalidateCache for fromWalletId={}", fromWalletId);
-                cacheService.invalidateCache(fromWalletId);
-            } catch (Exception e) {
-                LOGGER.error("Failed to invalidate cache for fromWalletId={}", fromWalletId, e);
-                failed = true;
-                exceptions.add(e);
-            }
-
-            try {
-                LOGGER.info("Calling invalidateCache for toWalletId={}", toWalletId);
-                cacheService.invalidateCache(toWalletId);
-            } catch (Exception e) {
-                LOGGER.error("Failed to invalidate cache for toWalletId={}", toWalletId, e);
-                failed = true;
-                exceptions.add(e);
-            }
+            // Lógica original de invalidação dupla
+            cacheService.invalidateCache(fromWalletId);
+            cacheService.invalidateCache(toWalletId);
 
             LOGGER.info("Cache invalidation processed for TransferredEvent: fromWalletId={}, toWalletId={}", fromWalletId, toWalletId);
-
-            if (failed) {
-                RuntimeException aggregateException = new RuntimeException(
-                        "Failed to invalidate cache for one or both wallets: fromWalletId=" + fromWalletId + ", toWalletId=" + toWalletId
-                );
-                exceptions.forEach(aggregateException::addSuppressed);
-                throw aggregateException;
-            }
         }
     }
 }
