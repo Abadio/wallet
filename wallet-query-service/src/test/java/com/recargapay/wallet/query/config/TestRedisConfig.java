@@ -62,17 +62,15 @@ public class TestRedisConfig {
     }
 
     @Bean
-    @SuppressWarnings("deprecation")
     public RedisTemplate<String, Object> redisTemplate(LettuceConnectionFactory connectionFactory, ObjectMapper objectMapper) {
         RedisTemplate<String, Object> template = new RedisTemplate<>();
         template.setConnectionFactory(connectionFactory);
 
-        // Configure key serializer
         template.setKeySerializer(new StringRedisSerializer());
 
-        // Configure value serializer with Jackson
-        Jackson2JsonRedisSerializer<Object> serializer = new Jackson2JsonRedisSerializer<>(Object.class);
-        serializer.setObjectMapper(objectMapper);
+        // CORREÇÃO: Usando o construtor correto em vez do método depreciado setObjectMapper
+        Jackson2JsonRedisSerializer<Object> serializer = new Jackson2JsonRedisSerializer<>(objectMapper, Object.class);
+
         template.setValueSerializer(serializer);
         template.setHashValueSerializer(serializer);
 
