@@ -35,9 +35,9 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
-class RedisDltConsumerIntegrationTest {
+class RedisDltConsumerComponentTest {
 
-    private static final Logger logger = LoggerFactory.getLogger(RedisDltConsumerIntegrationTest.class);
+    private static final Logger logger = LoggerFactory.getLogger(RedisDltConsumerComponentTest.class);
 
     @Mock
     private CacheService cacheService;
