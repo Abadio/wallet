@@ -23,8 +23,10 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class RedisDltConsumer {
     private static final Logger logger = LoggerFactory.getLogger(RedisDltConsumer.class);
-    public static final String DLT_TOPIC = "wallet-query-dlt";
-    public static final String FAILED_DLT_TOPIC = "wallet-query-dlt-failed";
+
+    public static final String DLT_TOPIC = "wallet-events-dlq";
+    public static final String FAILED_DLT_TOPIC = "wallet-events-dlq-failed";
+
     private static final String BALANCE_KEY_PREFIX = "wallet:balance:";
 
     private final CacheService cacheService;
@@ -43,7 +45,7 @@ public class RedisDltConsumer {
 
     @KafkaListener(
             topics = DLT_TOPIC,
-            groupId = "${kafka.consumer.dlt.group-id}",
+            groupId = "${spring.kafka.consumer.dlt.group-id}",
             containerFactory = "dltKafkaListenerContainerFactory"
     )
     public void consumeDlt(ConsumerRecord<String, Object> record, Acknowledgment acknowledgment) {

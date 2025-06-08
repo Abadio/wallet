@@ -2,6 +2,8 @@ server:
   port: 8082
 
 spring:
+  application:
+    name: wallet-query-service
   data:
     mongodb:
       uri: mongodb://mongodb:27017/wallet_service
@@ -12,33 +14,48 @@ spring:
       host: redis
       port: 6379
       database: 0
+
+  # --- SEÇÃO DO KAFKA CORRIGIDA ---
   kafka:
     bootstrap-servers: kafka:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.add.type.headers: true # Adiciona cabeçalhos de tipo
+
     consumer:
-      group-id: wallet-query-cache
+      # Definindo os group-ids de forma hierárquica
+      main:
+        group-id: wallet-events-consumer-group
+      dlt:
+        group-id: wallet-events-dlt-group
+      failed-dlt:
+        group-id: wallet-events-failed-dlt-group
+
+      # Propriedades comuns a todos os consumidores
       auto-offset-reset: earliest
       enable-auto-commit: false
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
       properties:
-        spring.json.value.deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
-        max.poll.records: 1
-        fetch.max.bytes: 52428800
-        max.partition.fetch.bytes: 1048576
-        session.timeout.ms: 30000
-        heartbeat.interval.ms: 10000
+        spring.json.value.default.type: java.lang.Object
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
+
+        # --- CORREÇÃO ADICIONADA AQUI ---
+        # Instruí o deserializer a ler os cabeçalhos para determinar o tipo do objeto.
+        spring.json.use.type.headers: true
+
         spring.json.trusted.packages: com.recargapay.wallet.common.event
-        spring.json.type.mapping:
+        spring.json.type.mapping: >
           DepositedEvent:com.recargapay.wallet.common.event.DepositedEvent,
           WithdrawnEvent:com.recargapay.wallet.common.event.WithdrawnEvent,
           TransferredEvent:com.recargapay.wallet.common.event.TransferredEvent
-    producer:
-      key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
     listener:
       ack-mode: MANUAL_IMMEDIATE
       concurrency: 1
-      poll-timeout: 1000
+
   jackson:
     serialization:
       write-dates-as-timestamps: false
@@ -50,8 +67,11 @@ cache:
 
 springdoc:
   api-docs:
-    path: /v3/api-docs
+    path: /v3/api-docs # Esta linha está correta
     enabled: true
   swagger-ui:
-    path: /swagger-ui.html
     enabled: true
+    # --- CORREÇÃO DEFINITIVA ADICIONADA AQUI ---
+    # Força a interface do Swagger a usar a URL da sua especificação OpenAPI,
+    # em vez de depender da descoberta automática que está falhando.
+    url: /v3/api-docs

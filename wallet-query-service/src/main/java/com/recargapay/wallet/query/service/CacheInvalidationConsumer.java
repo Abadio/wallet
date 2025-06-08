@@ -38,7 +38,7 @@ public class CacheInvalidationConsumer {
 
     @KafkaListener(
             topics = "wallet-events",
-            groupId = "${kafka.consumer.main.group-id}",
+            groupId = "${spring.kafka.consumer.main.group-id}",
             containerFactory = "kafkaListenerContainerFactory"
     )
     public void consumeEvent(ConsumerRecord<String, Object> record, Acknowledgment acknowledgment) {

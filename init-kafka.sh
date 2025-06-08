@@ -12,5 +12,6 @@ done
 # Cria os tópicos
 kafka-topics --create --topic wallet-events --bootstrap-server kafka:9092 --partitions 1 --replication-factor 1 --if-not-exists
 kafka-topics --create --topic wallet-events-dlq --bootstrap-server kafka:9092 --partitions 1 --replication-factor 1 --if-not-exists
+kafka-topics --create --topic wallet-events-dlq-failed --bootstrap-server kafka:9092 --partitions 1 --replication-factor 1 --if-not-exists
 
 echo "Topics created or already exist"

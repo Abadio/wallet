@@ -74,13 +74,15 @@ public class TestKafkaConfig {
         logger.info("Creating Kafka topics...");
         try (AdminClient adminClient = AdminClient.create(
                 Map.of("bootstrap.servers", kafkaContainer.getBootstrapServers()))) {
+
             var topics = Arrays.asList(
                     new NewTopic("wallet-events", 1, (short) 1),
-                    new NewTopic("wallet-query-dlt", 1, (short) 1),
-                    new NewTopic("wallet-query-dlt-failed", 1, (short) 1)
+                    new NewTopic("wallet-events-dlq", 1, (short) 1),
+                    new NewTopic("wallet-events-dlq-failed", 1, (short) 1)
             );
+
             adminClient.createTopics(topics).all().get(30, TimeUnit.SECONDS);
-            logger.info("Topics created: wallet-events, wallet-query-dlt, wallet-query-dlt-failed");
+            logger.info("Topics created: wallet-events, wallet-events-dlq, wallet-events-dlq-failed");
         } catch (Exception e) {
             logger.warn("Failed to create topics, they may already exist: {}", e.getMessage());
         }
@@ -223,12 +225,14 @@ public class TestKafkaConfig {
         DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(
                 kafkaTemplate,
                 (record, exception) -> {
-                    logger.warn("Sending record to DLT: topic=wallet-query-dlt, key={}, value={}, exception={}",
+                    logger.warn("Sending record to DLT: topic=wallet-events-dlq, key={}, value={}, exception={}",
                             record.key(), record.value() != null ? record.value().getClass().getSimpleName() : "null", exception.getMessage());
-                    return new TopicPartition("wallet-query-dlt", -1);
+                    // CORREÇÃO: Enviando para o tópico DLT correto
+                    return new TopicPartition("wallet-events-dlq", -1);
                 }
         );
 
+        // ... (resto do errorHandler permanece o mesmo) ...
         DefaultErrorHandler errorHandler = new DefaultErrorHandler(
                 recoverer,
                 new FixedBackOff(5000L, 0L) // Disable automatic retries
