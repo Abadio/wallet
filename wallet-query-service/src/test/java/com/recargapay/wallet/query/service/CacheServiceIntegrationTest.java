@@ -2,6 +2,7 @@ package com.recargapay.wallet.query.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.recargapay.wallet.query.config.JacksonConfig;
+import com.recargapay.wallet.query.config.TestJacksonConfig;
 import com.recargapay.wallet.query.config.TestRedisConfig;
 import com.recargapay.wallet.query.document.DailyBalanceDocument;
 import com.recargapay.wallet.query.document.TransactionHistoryDocument;
@@ -29,7 +30,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest(classes = {
-        JacksonConfig.class,
+        TestJacksonConfig.class,
         TestRedisConfig.class,
         CacheService.class
 })

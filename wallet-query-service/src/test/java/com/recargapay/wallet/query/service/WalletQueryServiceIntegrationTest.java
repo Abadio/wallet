@@ -1,6 +1,7 @@
 package com.recargapay.wallet.query.service;
 
 import com.recargapay.wallet.query.config.JacksonConfig;
+import com.recargapay.wallet.query.config.TestJacksonConfig;
 import com.recargapay.wallet.query.config.TestMongoConfig;
 import com.recargapay.wallet.query.config.TestRedisConfig;
 import com.recargapay.wallet.query.document.DailyBalanceDocument;
@@ -36,7 +37,7 @@ import static org.mockito.Mockito.*;
         KafkaAutoConfiguration.class
 })
 @ActiveProfiles("integration")
-@Import({TestMongoConfig.class, TestRedisConfig.class, JacksonConfig.class, WalletQueryService.class, CacheService.class})
+@Import({TestMongoConfig.class, TestRedisConfig.class, TestJacksonConfig.class, WalletQueryService.class, CacheService.class})
 class WalletQueryServiceIntegrationTest {
 
     @Autowired
